@@ -1,10 +1,13 @@
 #include <dlfcn.h>
+#include <errno.h>
 #include <pthread.h>
+#include <sched.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -18,6 +21,20 @@
 // If any function returns a string, and has an argument "reservedSpace", then
 // this argument means how many bytes to allocate in memory before the
 // characters of the string.
+
+typedef struct {
+  int64_t type;
+  int64_t value;
+} shar__type;
+
+typedef struct {
+  int64_t useCounter;
+  int64_t capacity;
+  int64_t indexOfFirst;
+  int64_t count;
+  pthread_mutex_t mutex;
+  shar__type *data;
+} shar__pipeline;
 
 #pragma region Alloc
 static __attribute__((always_inline)) void *safe_realloc(void *pointer,
@@ -584,40 +601,39 @@ shar__print__builtin__error(const char *message) {
 #pragma endregion Print
 
 #pragma region Random
-static uint64_t previouslyGeneratedRandomNumber;
-static uint64_t currentRandomNumberIndex = 4096;
+static _Atomic uint64_t previouslyGeneratedRandomNumber;
+static _Atomic uint64_t currentRandomNumberIndex = 4096;
 static uint64_t randomNumbers[4096];
-static pthread_mutex_t get__random__number__mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t get__cryptographic__random__number__mutex =
+static pthread_mutex_t cryptographic__random__number__mutex =
     PTHREAD_MUTEX_INITIALIZER;
 
 // The function returns a random number.
 uint64_t shar__get__random__number() {
-  pthread_mutex_lock(&get__random__number__mutex);
   previouslyGeneratedRandomNumber =
       6364136223846793005ull * previouslyGeneratedRandomNumber +
       1442695040888963407ull;
-  pthread_mutex_unlock(&get__random__number__mutex);
   return previouslyGeneratedRandomNumber;
 }
 
 // The function returns a random number suitable for cryptographic purposes.
 uint64_t shar__get__cryptographic__random__number() {
-  pthread_mutex_lock(&get__cryptographic__random__number__mutex);
   if (currentRandomNumberIndex == 4096) {
-    FILE *file = fopen("/dev/urandom", "r");
-    if (__builtin_expect((file == NULL) ||
-                             (fread(randomNumbers, 8, 4096, file) != 4096),
-                         false)) {
-      fprintf(stderr, "Can't read the file \x22/dev/urandom\x22.\n");
-      exit(EXIT_FAILURE);
+    pthread_mutex_lock(&cryptographic__random__number__mutex);
+    if (currentRandomNumberIndex == 4096) {
+      FILE *file = fopen("/dev/urandom", "r");
+      if (__builtin_expect((file == NULL) ||
+                               (fread(randomNumbers, 8, 4096, file) != 4096),
+                           false)) {
+        fprintf(stderr, "Can't read the file \x22/dev/urandom\x22.\n");
+        exit(EXIT_FAILURE);
+      }
+      fclose(file);
+      currentRandomNumberIndex = 0;
     }
-    fclose(file);
-    currentRandomNumberIndex = 0;
+    pthread_mutex_unlock(&cryptographic__random__number__mutex);
   }
   uint64_t result = randomNumbers[currentRandomNumberIndex];
   currentRandomNumberIndex++;
-  pthread_mutex_unlock(&get__cryptographic__random__number__mutex);
   return result;
 }
 #pragma endregion Random
@@ -652,6 +668,161 @@ bool shar__get__from__lib(uint64_t objectNameLength,
 bool shar__unload__lib(void *lib) { return dlclose(lib) == 0; }
 #pragma endregion Libs
 
+#pragma region Thread
+static bool allowThreads = false;
+
+void shar__pipeline__use__counter__inc(int64_t pipeline) {
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  pthread_mutex_lock(&(pipelinePointer->mutex));
+  pipelinePointer->useCounter++;
+  pthread_mutex_unlock(&(pipelinePointer->mutex));
+}
+
+// The function returns true if the pipeline should be destroyed.
+bool shar__pipeline__use__counter__dec(int64_t pipeline) {
+  bool result;
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  pthread_mutex_lock(&(pipelinePointer->mutex));
+  pipelinePointer->useCounter--;
+  result = pipelinePointer->useCounter == 0;
+  pthread_mutex_unlock(&(pipelinePointer->mutex));
+  return result;
+}
+
+bool shar__pipeline__is__use(int64_t pipeline) {
+  bool result;
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  pthread_mutex_lock(&(pipelinePointer->mutex));
+  result = pipelinePointer->useCounter != 1;
+  pthread_mutex_unlock(&(pipelinePointer->mutex));
+  return result;
+}
+
+int64_t shar__pipeline__get__data__for__free(int64_t pipeline) {
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  return (int64_t)(&(pipelinePointer->data[pipelinePointer->indexOfFirst]));
+}
+
+int64_t shar__pipeline__get__count__for__free(int64_t pipeline) {
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  return pipelinePointer->count;
+}
+
+int64_t shar__create__pipeline() {
+  shar__pipeline *result = safe_malloc(sizeof(shar__pipeline));
+  *result = (shar__pipeline){
+      .useCounter = 1,
+      .capacity = 32,
+      .indexOfFirst = 0,
+      .count = 0,
+      .data = (shar__type *)safe_malloc(32 * sizeof(shar__type))};
+  if (__builtin_expect(pthread_mutex_init(&(result->mutex), NULL) != 0,
+                       false)) {
+    fprintf(stderr, "Unable to create mutex.\n");
+    exit(EXIT_FAILURE);
+  }
+  return (int64_t)result;
+}
+
+void shar__pipeline__push(int64_t pipeline, shar__type newValue) {
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  pthread_mutex_lock(&(pipelinePointer->mutex));
+  if (pipelinePointer->capacity ==
+      (pipelinePointer->indexOfFirst + pipelinePointer->count)) {
+    if (pipelinePointer->indexOfFirst == 0) {
+      pipelinePointer->capacity *= 2;
+      pipelinePointer->data =
+          safe_realloc(pipelinePointer->data,
+                       sizeof(shar__type) * pipelinePointer->capacity);
+    } else {
+      memmove(pipelinePointer->data,
+              &(pipelinePointer->data[pipelinePointer->indexOfFirst]),
+              sizeof(shar__type) * pipelinePointer->count);
+      pipelinePointer->indexOfFirst = 0;
+    }
+  }
+  pipelinePointer
+      ->data[pipelinePointer->indexOfFirst + pipelinePointer->count] = newValue;
+  pipelinePointer->count++;
+  pthread_mutex_unlock(&(pipelinePointer->mutex));
+}
+
+shar__type shar__pipeline__pop(int64_t pipeline) {
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  shar__type result;
+  pthread_mutex_lock(&(pipelinePointer->mutex));
+  if (pipelinePointer->count == 0) {
+    result = (shar__type){.type = 0, .value = 0};
+  } else {
+    result = pipelinePointer->data[pipelinePointer->indexOfFirst];
+    pipelinePointer->indexOfFirst++;
+    pipelinePointer->count--;
+  }
+  pthread_mutex_unlock(&(pipelinePointer->mutex));
+  return result;
+}
+
+void shar__destroy__pipeline(int64_t pipeline) {
+  shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
+  pthread_mutex_destroy(&(pipelinePointer->mutex));
+  free(pipelinePointer->data);
+  free(pipelinePointer);
+}
+
+static void *run_worker(void *args) {
+  int64_t *workerArgs = (int64_t *)args;
+  shar__type (*function)(shar__type, shar__type) =
+      (shar__type(*)(shar__type, shar__type))(workerArgs[0]);
+  shar__type (*freeFunction)(shar__type) =
+      (shar__type(*)(shar__type))(workerArgs[1]);
+  shar__type in = (shar__type){.type = workerArgs[2], .value = workerArgs[3]};
+  shar__type out = (shar__type){.type = workerArgs[4], .value = workerArgs[5]};
+  shar__pipeline__use__counter__inc(in.value);
+  shar__pipeline__use__counter__inc(out.value);
+  shar__type result = function(in, out);
+  shar__pipeline__push(out.value, result);
+  freeFunction(in);
+  freeFunction(out);
+  return NULL;
+}
+
+// The function returns "true" if the worker was launched successfully.
+void shar__create__worker(shar__type (*function)(shar__type, shar__type),
+                          shar__type in, shar__type out,
+                          shar__type (*freeFunction)(shar__type)) {
+  if (__builtin_expect(!allowThreads, false)) {
+    fprintf(stderr, "At the stage of calculating constants, it is forbidden to "
+                    "use threads.\n");
+    exit(EXIT_FAILURE);
+  }
+  pthread_t thread;
+  int64_t *workerArgs = safe_malloc(48);
+  workerArgs[0] = (int64_t)function;
+  workerArgs[1] = (int64_t)freeFunction;
+  workerArgs[2] = in.type;
+  workerArgs[3] = in.value;
+  workerArgs[4] = out.type;
+  workerArgs[5] = out.value;
+  if (__builtin_expect(
+          pthread_create(&thread, NULL, run_worker, workerArgs) != 0, false)) {
+    fprintf(stderr, "Failed to start new thread.\n");
+    exit(EXIT_FAILURE);
+  }
+}
+
+void shar__yield() { sched_yield(); }
+
+void shar__sleep(int64_t milliseconds) {
+  struct timespec time;
+  time.tv_sec = milliseconds / (int64_t)1000;
+  time.tv_nsec = (milliseconds % (int64_t)1000) * (int64_t)1000000;
+  int result;
+  do {
+    result = nanosleep(&time, &time);
+  } while (result != 0 && errno == EINTR);
+}
+#pragma endregion Thread
+
 #pragma region Main
 // Before calling the rest of the functions from this library, this function
 // must be called (once).
@@ -662,11 +833,13 @@ void shar__init(int argc, char **argv) {
       time(NULL) ^ shar__get__cryptographic__random__number();
 }
 
+// The use of threads is allowed only after this function has been executed.
+void shar__enable__threads() { allowThreads = true; }
+
 // After the functions from this library are no longer needed, you need to call
 // this function.
 void shar__end() {
-  pthread_mutex_destroy(&get__cryptographic__random__number__mutex);
-  pthread_mutex_destroy(&get__random__number__mutex);
+  pthread_mutex_destroy(&cryptographic__random__number__mutex);
 }
 
 // The function terminates the program immediately without any error.
