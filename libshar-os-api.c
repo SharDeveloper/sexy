@@ -1,3 +1,4 @@
+#include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <pthread.h>
@@ -518,6 +519,89 @@ bool shar__file__rename(uint64_t oldFileNameLength,
   bool result = rename((char *)cOldFileName, (char *)cNewFileName) == 0;
   free(cOldFileName);
   free(cNewFileName);
+  return result;
+}
+
+// The function prepares data for parsing the contents of a directory.
+// If the preparation was successful, the function returns "true".
+bool shar__open__directory(uint64_t dirNameLength, const uint16_t *dirNameChars,
+                           int64_t *outDir) {
+  uint8_t *cDirName = shar__string__to__c__string(dirNameLength, dirNameChars);
+  DIR *directory = opendir((char *)cDirName);
+  *outDir = (int64_t)directory;
+  free(cDirName);
+  return directory != NULL;
+}
+
+// The function gets information about one of the objects from the directory.
+// If the information was obtained function returns "true".
+bool shar__read__directory(int64_t dir, uint64_t reservedSpace,
+                           uint64_t *fsObjectNameLength,
+                           uint16_t **fsObjectNameChars, uint8_t *objectType) {
+  bool result;
+  for (;;) {
+    struct dirent *directoryEntry = readdir((DIR *)dir);
+    result = directoryEntry != NULL;
+    if (!result) {
+      break;
+    }
+    char *objectName = directoryEntry->d_name;
+    const unsigned long objectNameLength = strlen(objectName);
+    if (objectName[0] == '.' &&
+        (objectNameLength == 1 ||
+         (objectNameLength == 2 && objectName[1] == '.'))) {
+      continue;
+    }
+    shar__c__string__to__string(reservedSpace, (uint8_t *)objectName,
+                                fsObjectNameLength, fsObjectNameChars);
+    switch (directoryEntry->d_type) {
+    case DT_BLK:
+      *objectType = 0;
+      break;
+    case DT_CHR:
+      *objectType = 1;
+      break;
+    case DT_DIR:
+      *objectType = 2;
+      break;
+    case DT_FIFO:
+      *objectType = 3;
+      break;
+    case DT_LNK:
+      *objectType = 4;
+      break;
+    case DT_REG:
+      *objectType = 5;
+      break;
+    case DT_SOCK:
+      *objectType = 6;
+      break;
+    default:
+      *objectType = 255;
+      break;
+    }
+    break;
+  }
+  return result;
+}
+
+// The function stops parsing the contents of the directory.
+void shar__close__directory(int64_t dir) { closedir((DIR *)dir); }
+
+// The function creates a directory and if it succeeds, it returns "true".
+// If the specified directory already exists and "ignoreExistedDirectory" is
+// equal to "true", then the function returns "true".
+bool shar__make__directory(uint64_t directoryNameLength,
+                           const uint16_t *directoryNameChars,
+                           bool ignoreExistedDirectory) {
+  uint8_t *cDirectoryName =
+      shar__string__to__c__string(directoryNameLength, directoryNameChars);
+  bool result =
+      mkdir((char *)cDirectoryName, S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO) == 0;
+  if (!result && ignoreExistedDirectory) {
+    result = errno == EEXIST;
+  }
+  free(cDirectoryName);
   return result;
 }
 #pragma endregion FS
