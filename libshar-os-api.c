@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <locale.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdbool.h>
@@ -906,6 +907,54 @@ void shar__sleep(int64_t milliseconds) {
   } while (result != 0 && errno == EINTR);
 }
 #pragma endregion Thread
+
+#pragma region Locale
+static uint64_t langAsUInt16(uint8_t char0, uint8_t char1) {
+  return ((uint16_t)char1 << 8) | (uint16_t)char0;
+}
+
+// The function returns the system language code according to the "ISO 639-1"
+// standard, in the form of 2 bytes.
+uint16_t shar__get__language__code() {
+  char *locale = setlocale(LC_ALL, "");
+  size_t langStrLen = strcspn(locale, "_ ");
+  uint16_t result = langAsUInt16('e', 'n');
+  if (langStrLen == 2) {
+    char part[3] = {locale[0], locale[1], 0};
+    static const char *langs =
+        "aa ab ae af ak am ar as av ay az "
+        "ba be bg bi bm bn bo br bs "
+        "ca ce ch co cs cu cv cy "
+        "da de dv dz "
+        "ee el en eo es et eu "
+        "fa ff fi fj fl fo fr fy "
+        "ga gd gl gn gu gv "
+        "ha he hi ho hr hu hy hz "
+        "ia id ie ig ik is it iu "
+        "ja jv "
+        "ka kg ki kj kk kl km kn ko kr ks ku kv kw ky "
+        "la lb lg ln lo lt lu lv "
+        "md me mg mh mi mk ml mn mr ms mt my "
+        "na nd ne ng nl nn no nr nv ny "
+        "oc oj om or os "
+        "pa pi pl ps pt "
+        "qu "
+        "rm rn ro ru rw "
+        "sa sc sd sg si sk sl sm sn so sq sr ss st su sv sw "
+        "ta te tg th ti tk tl tn to tr ts tt tw ty "
+        "ug uk ur uz "
+        "ve vi vo "
+        "wo "
+        "xh "
+        "yi yo "
+        "za zh zu ";
+    if (strstr(langs, part) != NULL) {
+      result = langAsUInt16(part[0], part[1]);
+    }
+  }
+  return result;
+}
+#pragma endregion Locale
 
 #pragma region Main
 // Before calling the rest of the functions from this library, this function
