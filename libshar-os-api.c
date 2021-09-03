@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <time.h>
 
@@ -172,6 +173,7 @@ shar__c__string__to__string(uint64_t reservedSpace, const uint8_t *cString,
 #pragma region Env
 static uint64_t __argc__;
 static char **__argv__;
+static int64_t cpuCoresNumber;
 
 // The function gets the command line argument by index.
 // The argument, at index 0, is the name of the program's executable file.
@@ -358,6 +360,9 @@ bool shar__execute__command(uint64_t commandLength,
   free(cCommand);
   return result;
 }
+
+// The function returns the number of processor cores.
+int64_t shar__get__cpu__cores__number() { return cpuCoresNumber; }
 #pragma endregion Env
 
 #pragma region FS
@@ -755,6 +760,7 @@ bool shar__unload__lib(void *lib) { return dlclose(lib) == 0; }
 
 #pragma region Thread
 static bool allowThreads = false;
+static _Atomic int64_t numberOfActiveThreads = 1;
 
 void shar__pipeline__use__counter__inc(int64_t pipeline) {
   shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
@@ -855,6 +861,7 @@ void shar__destroy__pipeline(int64_t pipeline) {
 }
 
 static void *run_worker(void *args) {
+  numberOfActiveThreads++;
   int64_t *workerArgs = (int64_t *)args;
   shar__type (*function)(shar__type, shar__type) =
       (shar__type(*)(shar__type, shar__type))(workerArgs[0]);
@@ -868,6 +875,7 @@ static void *run_worker(void *args) {
   shar__pipeline__push(out.value, result);
   freeFunction(in);
   freeFunction(out);
+  numberOfActiveThreads--;
   return NULL;
 }
 
@@ -906,6 +914,9 @@ void shar__sleep(int64_t milliseconds) {
     result = nanosleep(&time, &time);
   } while (result != 0 && errno == EINTR);
 }
+
+// The function returns the number of running threads.
+int64_t shar__get__threads__number() { return numberOfActiveThreads; }
 #pragma endregion Thread
 
 #pragma region Locale
@@ -964,6 +975,7 @@ void shar__init(int argc, char **argv) {
   __argv__ = argv;
   previouslyGeneratedRandomNumber =
       time(NULL) ^ shar__get__cryptographic__random__number();
+  cpuCoresNumber = get_nprocs();
 }
 
 // The use of threads is allowed only after this function has been executed.
