@@ -691,7 +691,7 @@ shar__print__builtin__error(const char *message) {
 #pragma endregion Print
 
 #pragma region Random
-static _Atomic uint64_t previouslyGeneratedRandomNumber;
+static _Atomic(uint64_t) randomNumberSource[5] = {0, 0, 0, 0, 0};
 static _Atomic uint64_t currentRandomNumberIndex = 4096;
 static uint64_t randomNumbers[4096];
 static pthread_mutex_t cryptographic__random__number__mutex =
@@ -699,10 +699,17 @@ static pthread_mutex_t cryptographic__random__number__mutex =
 
 // The function returns a random number.
 uint64_t shar__get__random__number() {
-  previouslyGeneratedRandomNumber =
-      6364136223846793005ull * previouslyGeneratedRandomNumber +
-      1442695040888963407ull;
-  return previouslyGeneratedRandomNumber;
+  uint64_t result = ((randomNumberSource[0] >> 16ull) & 32767ull) |
+                    (((randomNumberSource[1] >> 1ull) & (32767ull << 15ull))) |
+                    (((randomNumberSource[2] << 14ull) & (32767ull << 30ull))) |
+                    (((randomNumberSource[3] << 29ull) & (32767ull << 45ull))) |
+                    (((randomNumberSource[4] << 44ull) & (32767ull << 60ull)));
+  randomNumberSource[0] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[1] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[2] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[3] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[4] = randomNumberSource[0] * 1103515245 + 12345;
+  return result;
 }
 
 // The function returns a random number suitable for cryptographic purposes.
@@ -973,16 +980,19 @@ uint16_t shar__get__language__code() {
 void shar__init(int argc, char **argv) {
   __argc__ = argc;
   __argv__ = argv;
-  previouslyGeneratedRandomNumber =
-      time(NULL) ^ shar__get__cryptographic__random__number();
+  randomNumberSource[0] = shar__get__cryptographic__random__number();
+  randomNumberSource[1] = shar__get__cryptographic__random__number();
+  randomNumberSource[2] = shar__get__cryptographic__random__number();
+  randomNumberSource[3] = shar__get__cryptographic__random__number();
+  randomNumberSource[4] = shar__get__cryptographic__random__number();
   cpuCoresNumber = get_nprocs();
 }
 
 // The use of threads is allowed only after this function has been executed.
 void shar__enable__threads() { allowThreads = true; }
 
-// After the functions from this library are no longer needed, you need to call
-// this function.
+// After the functions from this library are no longer needed, you need to
+// call this function.
 void shar__end() {
   pthread_mutex_destroy(&cryptographic__random__number__mutex);
 }
