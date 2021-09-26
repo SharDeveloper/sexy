@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <locale.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdbool.h>
@@ -10,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <time.h>
 
@@ -171,6 +173,7 @@ shar__c__string__to__string(uint64_t reservedSpace, const uint8_t *cString,
 #pragma region Env
 static uint64_t __argc__;
 static char **__argv__;
+static int64_t cpuCoresNumber;
 
 // The function gets the command line argument by index.
 // The argument, at index 0, is the name of the program's executable file.
@@ -357,6 +360,9 @@ bool shar__execute__command(uint64_t commandLength,
   free(cCommand);
   return result;
 }
+
+// The function returns the number of processor cores.
+int64_t shar__get__cpu__cores__number() { return cpuCoresNumber; }
 #pragma endregion Env
 
 #pragma region FS
@@ -685,7 +691,7 @@ shar__print__builtin__error(const char *message) {
 #pragma endregion Print
 
 #pragma region Random
-static _Atomic uint64_t previouslyGeneratedRandomNumber;
+static _Atomic(uint64_t) randomNumberSource[5] = {0, 0, 0, 0, 0};
 static _Atomic uint64_t currentRandomNumberIndex = 4096;
 static uint64_t randomNumbers[4096];
 static pthread_mutex_t cryptographic__random__number__mutex =
@@ -693,10 +699,17 @@ static pthread_mutex_t cryptographic__random__number__mutex =
 
 // The function returns a random number.
 uint64_t shar__get__random__number() {
-  previouslyGeneratedRandomNumber =
-      6364136223846793005ull * previouslyGeneratedRandomNumber +
-      1442695040888963407ull;
-  return previouslyGeneratedRandomNumber;
+  uint64_t result = ((randomNumberSource[0] >> 16ull) & 32767ull) |
+                    (((randomNumberSource[1] >> 1ull) & (32767ull << 15ull))) |
+                    (((randomNumberSource[2] << 14ull) & (32767ull << 30ull))) |
+                    (((randomNumberSource[3] << 29ull) & (32767ull << 45ull))) |
+                    (((randomNumberSource[4] << 44ull) & (32767ull << 60ull)));
+  randomNumberSource[0] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[1] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[2] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[3] = randomNumberSource[0] * 1103515245 + 12345;
+  randomNumberSource[4] = randomNumberSource[0] * 1103515245 + 12345;
+  return result;
 }
 
 // The function returns a random number suitable for cryptographic purposes.
@@ -754,6 +767,7 @@ bool shar__unload__lib(void *lib) { return dlclose(lib) == 0; }
 
 #pragma region Thread
 static bool allowThreads = false;
+static _Atomic int64_t numberOfActiveThreads = 1;
 
 void shar__pipeline__use__counter__inc(int64_t pipeline) {
   shar__pipeline *pipelinePointer = (shar__pipeline *)pipeline;
@@ -854,6 +868,7 @@ void shar__destroy__pipeline(int64_t pipeline) {
 }
 
 static void *run_worker(void *args) {
+  numberOfActiveThreads++;
   int64_t *workerArgs = (int64_t *)args;
   shar__type (*function)(shar__type, shar__type) =
       (shar__type(*)(shar__type, shar__type))(workerArgs[0]);
@@ -867,6 +882,7 @@ static void *run_worker(void *args) {
   shar__pipeline__push(out.value, result);
   freeFunction(in);
   freeFunction(out);
+  numberOfActiveThreads--;
   return NULL;
 }
 
@@ -905,7 +921,58 @@ void shar__sleep(int64_t milliseconds) {
     result = nanosleep(&time, &time);
   } while (result != 0 && errno == EINTR);
 }
+
+// The function returns the number of running threads.
+int64_t shar__get__threads__number() { return numberOfActiveThreads; }
 #pragma endregion Thread
+
+#pragma region Locale
+static uint64_t langAsUInt16(uint8_t char0, uint8_t char1) {
+  return ((uint16_t)char1 << 8) | (uint16_t)char0;
+}
+
+// The function returns the system language code according to the "ISO 639-1"
+// standard, in the form of 2 bytes.
+uint16_t shar__get__language__code() {
+  char *locale = setlocale(LC_ALL, "");
+  size_t langStrLen = strcspn(locale, "_ ");
+  uint16_t result = langAsUInt16('e', 'n');
+  if (langStrLen == 2) {
+    char part[3] = {locale[0], locale[1], 0};
+    static const char *langs =
+        "aa ab ae af ak am ar as av ay az "
+        "ba be bg bi bm bn bo br bs "
+        "ca ce ch co cs cu cv cy "
+        "da de dv dz "
+        "ee el en eo es et eu "
+        "fa ff fi fj fl fo fr fy "
+        "ga gd gl gn gu gv "
+        "ha he hi ho hr hu hy hz "
+        "ia id ie ig ik is it iu "
+        "ja jv "
+        "ka kg ki kj kk kl km kn ko kr ks ku kv kw ky "
+        "la lb lg ln lo lt lu lv "
+        "md me mg mh mi mk ml mn mr ms mt my "
+        "na nd ne ng nl nn no nr nv ny "
+        "oc oj om or os "
+        "pa pi pl ps pt "
+        "qu "
+        "rm rn ro ru rw "
+        "sa sc sd sg si sk sl sm sn so sq sr ss st su sv sw "
+        "ta te tg th ti tk tl tn to tr ts tt tw ty "
+        "ug uk ur uz "
+        "ve vi vo "
+        "wo "
+        "xh "
+        "yi yo "
+        "za zh zu ";
+    if (strstr(langs, part) != NULL) {
+      result = langAsUInt16(part[0], part[1]);
+    }
+  }
+  return result;
+}
+#pragma endregion Locale
 
 #pragma region Main
 // Before calling the rest of the functions from this library, this function
@@ -913,15 +980,19 @@ void shar__sleep(int64_t milliseconds) {
 void shar__init(int argc, char **argv) {
   __argc__ = argc;
   __argv__ = argv;
-  previouslyGeneratedRandomNumber =
-      time(NULL) ^ shar__get__cryptographic__random__number();
+  randomNumberSource[0] = shar__get__cryptographic__random__number();
+  randomNumberSource[1] = shar__get__cryptographic__random__number();
+  randomNumberSource[2] = shar__get__cryptographic__random__number();
+  randomNumberSource[3] = shar__get__cryptographic__random__number();
+  randomNumberSource[4] = shar__get__cryptographic__random__number();
+  cpuCoresNumber = get_nprocs();
 }
 
 // The use of threads is allowed only after this function has been executed.
 void shar__enable__threads() { allowThreads = true; }
 
-// After the functions from this library are no longer needed, you need to call
-// this function.
+// After the functions from this library are no longer needed, you need to
+// call this function.
 void shar__end() {
   pthread_mutex_destroy(&cryptographic__random__number__mutex);
 }
