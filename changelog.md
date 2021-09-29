@@ -1,3 +1,6 @@
+# 0.3.1
+-  Added a function to immediately terminate the program with an invalid termination status.
+
 # 0.3
 - Added the ability to recognize the system language.
 - Fixed the pseudo-random number generator.

@@ -999,4 +999,8 @@ void shar__end() {
 
 // The function terminates the program immediately without any error.
 __attribute__((noreturn, cold)) void shar__exit() { exit(EXIT_SUCCESS); }
+
+// The function terminates the program immediately, but the program is
+// considered to have terminated incorrectly.
+__attribute__((noreturn, cold)) void shar__fail() { exit(EXIT_FAILURE); }
 #pragma endregion Main
