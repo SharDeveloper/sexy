@@ -71,9 +71,9 @@ shar__string__to__c__string(uint64_t length, const uint16_t *chars) {
     uint8_t addCharsSize = 0;
     if (currentChar != 0 && currentChar < 0x80) {
       addCharsSize = 1;
-    } else if (currentChar > 0x7f && currentChar < 0x800) {
+    } else if (currentChar < 0x800) {
       addCharsSize = 2;
-    } else if (currentChar > 0x7ff) {
+    } else {
       addCharsSize = 3;
     }
     memorySize += addCharsSize;
@@ -623,12 +623,12 @@ print(uint64_t length, const uint16_t *chars, FILE *file, bool endIsNewLine) {
       if (currentChar > 0 && currentChar < 0x80) {
         buffer[bufferIndex] = currentChar;
         bufferIndex++;
-      } else if (currentChar > 0x7f && currentChar < 0x800) {
+      } else if (currentChar < 0x800) {
         buffer[bufferIndex] = (currentChar >> 6) | 192;
         bufferIndex++;
         buffer[bufferIndex] = (currentChar & 63) | 128;
         bufferIndex++;
-      } else if (currentChar > 0x7ff) {
+      } else {
         buffer[bufferIndex] = (currentChar >> 12) | 224;
         bufferIndex++;
         buffer[bufferIndex] = ((currentChar >> 6) & 63) | 128;
