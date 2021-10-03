@@ -69,7 +69,10 @@ shar__string__to__c__string(uint64_t length, const uint16_t *chars) {
   for (uint64_t charIndex = 0; charIndex < length; charIndex++) {
     uint16_t const currentChar = chars[charIndex];
     uint8_t addCharsSize = 0;
-    if (currentChar != 0 && currentChar < 0x80) {
+    if (currentChar == 0) {
+      continue;
+    }
+    if (currentChar < 0x80) {
       addCharsSize = 1;
     } else if (currentChar < 0x800) {
       addCharsSize = 2;
@@ -620,7 +623,10 @@ print(uint64_t length, const uint16_t *chars, FILE *file, bool endIsNewLine) {
     uint64_t bufferIndex = 0;
     for (uint64_t charIndex = 0; charIndex < length; charIndex++) {
       uint16_t currentChar = chars[charIndex];
-      if (currentChar > 0 && currentChar < 0x80) {
+      if (currentChar == 0) {
+        continue;
+      }
+      if (currentChar < 0x80) {
         buffer[bufferIndex] = currentChar;
         bufferIndex++;
       } else if (currentChar < 0x800) {
