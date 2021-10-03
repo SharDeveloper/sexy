@@ -737,7 +737,10 @@ uint64_t shar__get__cryptographic__random__number() {
 
 #pragma region Time
 // The function returns the current time.
-uint64_t shar__get__current__time() { return time(NULL); }
+uint64_t shar__get__current__time() { return time(NULL) - timezone; }
+
+// The function returns the current time. (UTC)
+uint64_t shar__get__current__utc__time() { return time(NULL); }
 #pragma endregion Time
 
 #pragma region Libs
@@ -986,6 +989,7 @@ void shar__init(int argc, char **argv) {
   randomNumberSource[3] = shar__get__cryptographic__random__number();
   randomNumberSource[4] = shar__get__cryptographic__random__number();
   cpuCoresNumber = get_nprocs();
+  tzset();
 }
 
 // The use of threads is allowed only after this function has been executed.
