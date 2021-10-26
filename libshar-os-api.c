@@ -933,6 +933,15 @@ void shar__sleep(int64_t milliseconds) {
 
 // The function returns the number of running threads.
 int64_t shar__get__threads__number() { return numberOfActiveThreads; }
+
+int64_t shar__get__pipeline__items__count(int64_t pipelineAsInt){
+  shar__pipeline *pipeline = (shar__pipeline *)pipelineAsInt;
+  int64_t result;
+  pthread_mutex_lock(&(pipeline->mutex));
+  result = pipeline->count;
+  pthread_mutex_unlock(&(pipeline->mutex));
+  return result;
+}
 #pragma endregion Thread
 
 #pragma region Locale
