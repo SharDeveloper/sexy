@@ -12,8 +12,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/sysinfo.h>
+#include <sys/time.h>
 #include <sys/types.h>
-#include <time.h>
 
 // Functions from this library work with strings that consist of two parts :
 //    1 - string length
@@ -743,10 +743,18 @@ uint64_t shar__get__cryptographic__random__number() {
 
 #pragma region Time
 // The function returns the current time.
-uint64_t shar__get__current__time() { return time(NULL) - timezone; }
+uint64_t shar__get__current__time() {
+  struct timeval time;
+  gettimeofday(&time, NULL);
+  return ((int64_t)time.tv_sec - timezone) * 1000000 + time.tv_usec;
+}
 
 // The function returns the current time. (UTC)
-uint64_t shar__get__current__utc__time() { return time(NULL); }
+uint64_t shar__get__current__utc__time() {
+  struct timeval time;
+  gettimeofday(&time, NULL);
+  return ((int64_t)time.tv_sec) * 1000000 + time.tv_usec;
+}
 #pragma endregion Time
 
 #pragma region Libs
@@ -934,7 +942,7 @@ void shar__sleep(int64_t milliseconds) {
 // The function returns the number of running threads.
 int64_t shar__get__threads__number() { return numberOfActiveThreads; }
 
-int64_t shar__get__pipeline__items__count(int64_t pipelineAsInt){
+int64_t shar__get__pipeline__items__count(int64_t pipelineAsInt) {
   shar__pipeline *pipeline = (shar__pipeline *)pipelineAsInt;
   int64_t result;
   pthread_mutex_lock(&(pipeline->mutex));
