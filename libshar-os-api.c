@@ -613,6 +613,13 @@ bool shar__make__directory(uint64_t directoryNameLength,
   free(cDirectoryName);
   return result;
 }
+
+// The function writes the name of the directory used to store temporary files.
+void shar__get__tmp__dir__name(uint64_t reservedSpace, uint64_t *outLength,
+                               uint16_t **outChars) {
+  shar__c__string__to__string(reservedSpace, (uint8_t *)"/tmp", outLength,
+                              outChars);
+}
 #pragma endregion FS
 
 #pragma region Print
