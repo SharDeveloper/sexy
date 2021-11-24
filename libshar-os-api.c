@@ -12,8 +12,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/sysinfo.h>
+#include <sys/time.h>
 #include <sys/types.h>
-#include <time.h>
 
 // Functions from this library work with strings that consist of two parts :
 //    1 - string length
@@ -69,11 +69,14 @@ shar__string__to__c__string(uint64_t length, const uint16_t *chars) {
   for (uint64_t charIndex = 0; charIndex < length; charIndex++) {
     uint16_t const currentChar = chars[charIndex];
     uint8_t addCharsSize = 0;
-    if (currentChar != 0 && currentChar < 0x80) {
+    if (currentChar == 0) {
+      continue;
+    }
+    if (currentChar < 0x80) {
       addCharsSize = 1;
-    } else if (currentChar > 0x7f && currentChar < 0x800) {
+    } else if (currentChar < 0x800) {
       addCharsSize = 2;
-    } else if (currentChar > 0x7ff) {
+    } else {
       addCharsSize = 3;
     }
     memorySize += addCharsSize;
@@ -610,6 +613,13 @@ bool shar__make__directory(uint64_t directoryNameLength,
   free(cDirectoryName);
   return result;
 }
+
+// The function writes the name of the directory used to store temporary files.
+void shar__get__tmp__dir__name(uint64_t reservedSpace, uint64_t *outLength,
+                               uint16_t **outChars) {
+  shar__c__string__to__string(reservedSpace, (uint8_t *)"/tmp", outLength,
+                              outChars);
+}
 #pragma endregion FS
 
 #pragma region Print
@@ -620,15 +630,18 @@ print(uint64_t length, const uint16_t *chars, FILE *file, bool endIsNewLine) {
     uint64_t bufferIndex = 0;
     for (uint64_t charIndex = 0; charIndex < length; charIndex++) {
       uint16_t currentChar = chars[charIndex];
-      if (currentChar > 0 && currentChar < 0x80) {
+      if (currentChar == 0) {
+        continue;
+      }
+      if (currentChar < 0x80) {
         buffer[bufferIndex] = currentChar;
         bufferIndex++;
-      } else if (currentChar > 0x7f && currentChar < 0x800) {
+      } else if (currentChar < 0x800) {
         buffer[bufferIndex] = (currentChar >> 6) | 192;
         bufferIndex++;
         buffer[bufferIndex] = (currentChar & 63) | 128;
         bufferIndex++;
-      } else if (currentChar > 0x7ff) {
+      } else {
         buffer[bufferIndex] = (currentChar >> 12) | 224;
         bufferIndex++;
         buffer[bufferIndex] = ((currentChar >> 6) & 63) | 128;
@@ -737,7 +750,18 @@ uint64_t shar__get__cryptographic__random__number() {
 
 #pragma region Time
 // The function returns the current time.
-uint64_t shar__get__current__time() { return time(NULL); }
+uint64_t shar__get__current__time() {
+  struct timeval time;
+  gettimeofday(&time, NULL);
+  return ((int64_t)time.tv_sec - timezone) * 1000000 + time.tv_usec;
+}
+
+// The function returns the current time. (UTC)
+uint64_t shar__get__current__utc__time() {
+  struct timeval time;
+  gettimeofday(&time, NULL);
+  return ((int64_t)time.tv_sec) * 1000000 + time.tv_usec;
+}
 #pragma endregion Time
 
 #pragma region Libs
@@ -924,6 +948,15 @@ void shar__sleep(int64_t milliseconds) {
 
 // The function returns the number of running threads.
 int64_t shar__get__threads__number() { return numberOfActiveThreads; }
+
+int64_t shar__get__pipeline__items__count(int64_t pipelineAsInt) {
+  shar__pipeline *pipeline = (shar__pipeline *)pipelineAsInt;
+  int64_t result;
+  pthread_mutex_lock(&(pipeline->mutex));
+  result = pipeline->count;
+  pthread_mutex_unlock(&(pipeline->mutex));
+  return result;
+}
 #pragma endregion Thread
 
 #pragma region Locale
@@ -986,6 +1019,7 @@ void shar__init(int argc, char **argv) {
   randomNumberSource[3] = shar__get__cryptographic__random__number();
   randomNumberSource[4] = shar__get__cryptographic__random__number();
   cpuCoresNumber = get_nprocs();
+  tzset();
 }
 
 // The use of threads is allowed only after this function has been executed.

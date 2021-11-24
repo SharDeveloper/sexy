@@ -1,3 +1,9 @@
+# 0.4
+-  The 'shar__get__current__time' function now returns the local time, and the 'shar__get__current__utc__time' function has been added to get the time in UTC.
+-  Added the ability to find out the number of items waiting to be transferred from one thread to another.
+-  The time format has been changed. (number of seconds -> number of microseconds)
+-  Added a function to get the name of the directory used by the system to store temporary files.
+
 # 0.3.1
 -  Added a function to immediately terminate the program with an invalid termination status.
 
