@@ -26,8 +26,8 @@
 // characters of the string.
 
 typedef struct {
-  int64_t type;
   int64_t value;
+  int32_t type;
 } shar__type;
 
 typedef struct {
@@ -38,6 +38,13 @@ typedef struct {
   pthread_mutex_t mutex;
   shar__type *data;
 } shar__pipeline;
+
+typedef struct {
+  shar__type (*worker)(shar__type, shar__type);
+  shar__type (*pipelineFreeFunction)(shar__type);
+  shar__type inPipeline;
+  shar__type outPipeline;
+} workerArgsType;
 
 #pragma region Alloc
 static __attribute__((always_inline)) void *safe_realloc(void *pointer,
@@ -874,7 +881,7 @@ shar__type shar__pipeline__pop(int64_t pipeline) {
   shar__type result;
   pthread_mutex_lock(&(pipelinePointer->mutex));
   if (pipelinePointer->count == 0) {
-    result = (shar__type){.type = 0, .value = 0};
+    result = (shar__type){.value = 0, .type = 0};
   } else {
     result = pipelinePointer->data[pipelinePointer->indexOfFirst];
     pipelinePointer->indexOfFirst++;
@@ -893,13 +900,11 @@ void shar__destroy__pipeline(int64_t pipeline) {
 
 static void *run_worker(void *args) {
   numberOfActiveThreads++;
-  int64_t *workerArgs = (int64_t *)args;
-  shar__type (*function)(shar__type, shar__type) =
-      (shar__type(*)(shar__type, shar__type))(workerArgs[0]);
-  shar__type (*freeFunction)(shar__type) =
-      (shar__type(*)(shar__type))(workerArgs[1]);
-  shar__type in = (shar__type){.type = workerArgs[2], .value = workerArgs[3]};
-  shar__type out = (shar__type){.type = workerArgs[4], .value = workerArgs[5]};
+  workerArgsType workerArgs = *(workerArgsType *)args;
+  shar__type (*function)(shar__type, shar__type) = workerArgs.worker;
+  shar__type (*freeFunction)(shar__type) = workerArgs.pipelineFreeFunction;
+  shar__type in = workerArgs.inPipeline;
+  shar__type out = workerArgs.outPipeline;
   shar__pipeline__use__counter__inc(in.value);
   shar__pipeline__use__counter__inc(out.value);
   shar__type result = function(in, out);
@@ -907,6 +912,7 @@ static void *run_worker(void *args) {
   freeFunction(in);
   freeFunction(out);
   numberOfActiveThreads--;
+  free(args);
   return NULL;
 }
 
@@ -920,13 +926,11 @@ void shar__create__worker(shar__type (*function)(shar__type, shar__type),
     exit(EXIT_FAILURE);
   }
   pthread_t thread;
-  int64_t *workerArgs = safe_malloc(48);
-  workerArgs[0] = (int64_t)function;
-  workerArgs[1] = (int64_t)freeFunction;
-  workerArgs[2] = in.type;
-  workerArgs[3] = in.value;
-  workerArgs[4] = out.type;
-  workerArgs[5] = out.value;
+  workerArgsType *workerArgs = safe_malloc(sizeof(workerArgsType));
+  *workerArgs = (workerArgsType){.worker = function,
+                                 .pipelineFreeFunction = freeFunction,
+                                 .inPipeline = in,
+                                 .outPipeline = out};
   if (__builtin_expect(
           pthread_create(&thread, NULL, run_worker, workerArgs) != 0, false)) {
     fprintf(stderr, "Failed to start new thread.\n");
