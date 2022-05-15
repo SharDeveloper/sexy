@@ -1,3 +1,9 @@
+# 0.5
+- Project name changed to 'sexy'. (**S**har **EX**ternal librar**Y**)
+- Now the library can contain not only functions for working with the OS, but also any functions that, for one reason or another, are taken out of the 'STD' module.
+- The library is more integrated with the 'STD' module.
+- The library has been adapted for sharc version 0.5.
+
 # 0.4
 -  The 'shar__get__current__time' function now returns the local time, and the 'shar__get__current__utc__time' function has been added to get the time in UTC.
 -  Added the ability to find out the number of items waiting to be transferred from one thread to another.

@@ -1,1 +1,1 @@
-clang -O3 -march=native -fPIC -shared -pthread -o libshar-os-api.so libshar-os-api.c
+clang -O3 -ldl -pthread -o sexy.o sexy.c
