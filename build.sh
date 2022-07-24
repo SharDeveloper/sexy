@@ -1,1 +1,1 @@
-clang -O3 -ldl -pthread -o sexy.o sexy.c
+clang -O3 -pthread -c -o sexy.o sexy.c

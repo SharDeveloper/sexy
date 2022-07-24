@@ -841,6 +841,39 @@ type fs__make_dir(type dir_name, type ignore_existed_directory) {
 
 // The function return the name of the directory used to store temporary files.
 type fs__get_tmp_dir_name() {return fs__tmp_dir_name;}
+
+type fs__read_symlink(type link) {
+    uint8_t* const link_utf8 = string__utf32_to_utf8(link);
+    uint8_t stack_buffer[256];
+    uint8_t* heap_buffer = NULL;
+    uint8_t* buffer = stack_buffer;
+    uint64_t buffer_size = 256;
+    type result = (type){.data = 0, .type = nothing__type_number};
+    for (;;) {
+        uint64_t const readed_bytes_len = readlink((const char*)link_utf8, (char*)(buffer), buffer_size);
+        if (readed_bytes_len == -1) {break;}
+        if (readed_bytes_len < buffer_size) {
+            buffer[readed_bytes_len] = 0;
+            result = string__utf8_to_utf32(buffer);
+            break;
+        }
+        buffer_size *= 2;
+        heap_buffer = realloc(heap_buffer, buffer_size);
+        buffer = heap_buffer;
+    }
+    free(link_utf8);
+    if (heap_buffer != NULL) {free(heap_buffer);}
+    return result;
+}
+
+type fs__create_symlink(type link_path, type src_object) {
+    uint8_t* const link_path_utf8 = string__utf32_to_utf8(link_path);
+    uint8_t* const src_object_utf8 = string__utf32_to_utf8(src_object);
+    type result = (type){.data = 1 + symlink((const char*)src_object_utf8, (const char*)link_path_utf8), .type = bool__type_numer};
+    free(link_path_utf8);
+    free(src_object_utf8);
+    return result;
+}
 #pragma endregion FS
 
 
