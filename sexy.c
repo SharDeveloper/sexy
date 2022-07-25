@@ -1,6 +1,8 @@
+#define _GNU_SOURCE
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <locale.h>
 #include <pthread.h>
@@ -85,7 +87,7 @@ static inline void* safe_malloc(uint64_t size) {
 #define malloc(size) safe_malloc(size)
 
 #pragma region String
-static type const string__empty = (type){.data = (uint64_t)(const uint64_t[]){0, 0}, .type = string__type_number};
+static type const string__empty = (type){.data = (uint64_t)(const uint64_t[]) {0, 0}, .type = string__type_number};
 
 static inline uint8_t char__utf32_to_utf8(uint32_t utf32_char, uint8_t* utf8_char) {
     if (utf32_char > 0x10FFFF || utf32_char == 0) {
@@ -257,7 +259,7 @@ __attribute__((noreturn, cold)) void string__print_utf8_error(const uint8_t* mes
 #pragma region Error
 type error__create(type id, type message, type data) {
     error* const error_mem = malloc(sizeof(error));
-    *error_mem = (error){
+    *error_mem = (error) {
         .id   = id.data,
         .message = (uint32_t*)message.data,
         .data = data
@@ -268,7 +270,7 @@ type error__create(type id, type message, type data) {
 type error__create_utf8_message(type id, type data, const uint8_t* message) {
     type const message_obj = string__utf8_to_utf32(message);
     error* const error_mem = malloc(sizeof(error));
-    *error_mem = (error){
+    *error_mem = (error) {
         .id   = id.data,
         .data = data,
         .message = (uint32_t*)message_obj.data
@@ -366,7 +368,7 @@ static inline void mutex__destroy(pthread_mutex_t* mutex) {
 
 uint64_t pipeline__create() {
     pipeline* result = malloc(sizeof(pipeline));
-    *result = (pipeline){
+    *result = (pipeline) {
         .use_counter    = 1,
         .capacity       = 32,
         .index_of_first = 0,
@@ -380,14 +382,14 @@ uint64_t pipeline__create() {
 void pipeline__use(uint64_t pipe) {
     pipeline* pipeline_ptr = (pipeline*)pipe;
     mutex__lock(&(pipeline_ptr->mutex));
-    if (pipeline_ptr->use_counter != 0){pipeline_ptr->use_counter++;}
+    if (pipeline_ptr->use_counter != 0) {pipeline_ptr->use_counter++;}
     mutex__unlock(&(pipeline_ptr->mutex));
 }
 
 void pipeline__free(uint64_t pipe, void* th_data) {
     pipeline* pipeline_ptr = (pipeline*)pipe;
     mutex__lock(&(pipeline_ptr->mutex));
-    switch (pipeline_ptr->use_counter){
+    switch (pipeline_ptr->use_counter) {
     case 0:
         break;
     case 1:
@@ -414,14 +416,14 @@ void pipeline__free(uint64_t pipe, void* th_data) {
 void pipeline__to_const(uint64_t pipe) {
     pipeline* pipeline_ptr = (pipeline*)pipe;
     mutex__lock(&(pipeline_ptr->mutex));
-    if (pipeline_ptr->use_counter != 0){pipeline_ptr->use_counter = 0;}
+    if (pipeline_ptr->use_counter != 0) {pipeline_ptr->use_counter = 0;}
     mutex__unlock(&(pipeline_ptr->mutex));
 }
 
 void pipeline__push(uint64_t pipe, type pushed_object) {
     pipeline* pipeline_ptr = (pipeline*)pipe;
     mutex__lock(&(pipeline_ptr->mutex));
-    if (pipeline_ptr->capacity == (pipeline_ptr->index_of_first + pipeline_ptr->count)){
+    if (pipeline_ptr->capacity == (pipeline_ptr->index_of_first + pipeline_ptr->count)) {
         if (pipeline_ptr->index_of_first == 0) {
             pipeline_ptr->capacity *= 2;
             pipeline_ptr->items = realloc(pipeline_ptr->items, pipeline_ptr->capacity * sizeof(type));
@@ -492,10 +494,10 @@ void worker__create(type (*function)(type, type, void*, bool), type in_pipe, typ
     }
     pthread_t thread;
     worker* worker_var = malloc(sizeof(worker));
-    *worker_var = (worker){.worker = function, .in = in_pipe, .out = out_pipe};
+    *worker_var = (worker) {.worker = function, .in = in_pipe, .out = out_pipe};
     pipeline__use(in_pipe.data);
     pipeline__use(out_pipe.data);
-    if (__builtin_expect(pthread_create(&thread, NULL, worker__run, worker_var) != 0, false)){
+    if (__builtin_expect(pthread_create(&thread, NULL, worker__run, worker_var) != 0, false)) {
         fprintf(stderr, "Failed to start new thread.\n");
         exit(EXIT_FAILURE);
     }
@@ -524,7 +526,7 @@ type get_number_of_threads() {return (type){.data = number_of_threads, .type = i
 static uint64_t __argc__;
 static uint8_t** __argv__;
 static uint64_t cpu_cores_number;
-static type const env__platform_name = (type){.data = (uint64_t)(const uint32_t[]){0, 0, 12, 0, 'l', 'i', 'n', 'u', 'x', ' ', 'x', '8', '6', '_', '6', '4',}, .type = string__type_number};
+static type const env__platform_name = (type){.data = (uint64_t)(const uint32_t[]) {0, 0, 12, 0, 'l', 'i', 'n', 'u', 'x', ' ', 'x', '8', '6', '_', '6', '4',}, .type = string__type_number};
 
 type env__get_cmd_argument(type index) {
     if (index.data < __argc__) {return string__utf8_to_utf32(__argv__[index.data]);}
@@ -646,7 +648,18 @@ type int__get_cryptographic__random(void* th_data) {
 #pragma endregion Random
 
 #pragma region FS
-static type const fs__tmp_dir_name = (type){.data = (uint64_t)(const uint32_t[]){0, 0, 5, 0, '/', 't', 'm', 'p', '/'}, .type = string__type_number};
+#define file_buffer_size 131072
+#define fs__copy__problem__stat           (type){.data = 1,  .type = int__type_number}
+#define fs__copy__problem__read_link      (type){.data = 2,  .type = int__type_number}
+#define fs__copy__problem__create_symlink (type){.data = 3,  .type = int__type_number}
+#define fs__copy__problem__open_dir       (type){.data = 4,  .type = int__type_number}
+#define fs__copy__problem__make_dir       (type){.data = 5,  .type = int__type_number}
+#define fs__copy__problem__open_file      (type){.data = 6,  .type = int__type_number}
+#define fs__copy__problem__create_file    (type){.data = 7,  .type = int__type_number}
+#define fs__copy__problem__read_from_file (type){.data = 8,  .type = int__type_number}
+#define fs__copy__problem__write_to_file  (type){.data = 9,  .type = int__type_number}
+
+static type const fs__tmp_dir_name = (type){.data = (uint64_t)(const uint32_t[]) {0, 0, 5, 0, '/', 't', 'm', 'p', '/'}, .type = string__type_number};
 
 // The function deletes the file at the specified path.
 // If the delete was successful, then the function returns "true", otherwise "false".
@@ -820,7 +833,6 @@ type fs__read_dir(type dir, type* object_type) {
             break;
         default:
             *object_type = (type){.data = 255, .type = int__type_number};
-            break;
         }
         return string__utf8_to_utf32((const uint8_t*)object_name);
     }
@@ -841,6 +853,227 @@ type fs__make_dir(type dir_name, type ignore_existed_directory) {
 
 // The function return the name of the directory used to store temporary files.
 type fs__get_tmp_dir_name() {return fs__tmp_dir_name;}
+
+__attribute__((cold)) static type fs__problem_solver(const char* destination, const char* source, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type problem_code, void* th_data) {
+    type destination_utf32 = string__utf8_to_utf32((uint8_t*)destination);
+    type source_utf32 = string__utf8_to_utf32((uint8_t*)source);
+    type const result = problem_solver_func(problem_solver, destination_utf32, source_utf32, problem_code.data, problem_code.type, th_data, false);
+    shar__rc_free(destination_utf32, th_data, false);
+    shar__rc_free(source_utf32, th_data, false);
+    return result;
+}
+
+static type fs__copy_link_utf8(const char* destination, const char* source, uint8_t** buffer, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (*int_to_cptype)(type, void*, bool), void* th_data) {
+    type result = (type){.data = 0, .type = nothing__type_number};
+    if (*buffer == NULL) {*buffer = malloc(file_buffer_size);}
+    uint64_t readed_len;
+    for (;;) {
+        readed_len = readlink(source, (char*)(*buffer), file_buffer_size);
+        if (readed_len == -1) {
+            result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__read_link, th_data, false), th_data);
+            if (result.type == error__type_number) {return result;}
+        } else {
+            (*buffer)[readed_len] = 0;
+            if (symlink((char*)(*buffer), destination) == 0) {break;}
+            result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__create_symlink, th_data, false), th_data);
+            break;
+        }
+    }
+    return result;
+}
+
+static type fs__copy_file_utf8(const char* destination, const char* source, bool src_is_executable, int* pipefd, bool* allow_splice, uint8_t** buffer, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (*int_to_cptype)(type, void*, bool), void* th_data) {
+    type result = (type){.data = 0, .type = nothing__type_number};
+    int src_fd;
+    int dest_fd;
+    int flags = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH ;
+    if (src_is_executable) {flags |= S_IXUSR | S_IXGRP | S_IXOTH;}
+    src_fd = open(source, O_RDONLY);
+    if (src_fd == -1) {
+        result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__open_file, th_data, false), th_data);
+        return result;
+    }
+    dest_fd = open(destination, O_CREAT | O_EXCL | O_WRONLY, flags);
+    if (dest_fd == -1) {
+        close(src_fd);
+        result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__create_file, th_data, false), th_data);
+        return result;
+    }
+    if (allow_splice) {
+        for (;;) {
+            uint64_t const readed_bytes_len = splice(src_fd, NULL, pipefd[1], NULL, file_buffer_size, SPLICE_F_MOVE);
+            if (readed_bytes_len == 0) {break;}
+            if (__builtin_expect(readed_bytes_len == -1, false)) {
+                *allow_splice = false;
+                if (*buffer == NULL) {*buffer = malloc(file_buffer_size);}
+                break;
+            }
+            uint64_t const writed_bytes_len = splice(pipefd[0], NULL, dest_fd, NULL, file_buffer_size, SPLICE_F_MOVE);
+            if (__builtin_expect(readed_bytes_len != writed_bytes_len, false)) {
+                *allow_splice = false;
+                if (*buffer == NULL) {*buffer = malloc(file_buffer_size);}
+                break;
+            }
+        }
+    }
+    if (!allow_splice) {
+        for (;;) {
+            uint64_t const readed_bytes_len = read(src_fd, *buffer, file_buffer_size);
+            if (readed_bytes_len == 0) {break;}
+            if (readed_bytes_len == -1) {
+                close(src_fd);
+                close(dest_fd);
+                result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__read_from_file, th_data, false), th_data);
+                return result;
+            }
+            uint64_t const writed_bytes_len = write(dest_fd, *buffer, readed_bytes_len);
+            if (writed_bytes_len != readed_bytes_len) {
+                close(src_fd);
+                close(dest_fd);
+                result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__write_to_file, th_data, false), th_data);
+                return result;
+            }
+        }
+    }
+    close(src_fd);
+    close(dest_fd);
+    return result;
+}
+
+static type fs__copy_dir_utf8(const char* destination, const char* source, int* pipefd, bool* allow_splice, uint8_t** buffer, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (*int_to_cptype)(type, void*, bool), void* th_data) {
+    type result = (type){.data = 0, .type = nothing__type_number};
+    if (mkdir(destination, S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO) != 0) {
+        result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__make_dir, th_data, false), th_data);
+        if (result.type == error__type_number) {return result;}
+    }
+    uint64_t dirs_count = 0;
+    char** dest_dirs_list = NULL;
+    char** src_dirs_list = NULL;
+    {
+        DIR* dir;
+        for (;;) {
+            dir = opendir(source);
+            if (dir != NULL) {break;}
+            result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__open_dir, th_data, false), th_data);
+            if (result.type == error__type_number) {return result;}
+        }
+        for (;;) {
+            struct dirent* const dir_entry = readdir(dir);
+            if (dir_entry == NULL) {break;}
+            char* const object_name = dir_entry->d_name;
+            uint64_t const object_name_length = strlen(object_name);
+            if (
+                object_name[0] == '.' &&
+                (object_name_length == 1 || (object_name_length == 2 && object_name[1] == '.'))
+            ) {continue;}
+            uint64_t const dest_length = strlen(destination);
+            char* dest_full_name = malloc(dest_length + object_name_length + 2);
+            strcpy(dest_full_name, destination);
+            dest_full_name[dest_length] = '/';
+            dest_full_name[dest_length + 1] = 0;
+            strcat(dest_full_name, object_name);
+            uint64_t const src_length = strlen(source);
+            char* src_full_name = malloc(src_length + object_name_length + 2);
+            strcpy(src_full_name, source);
+            src_full_name[src_length] = '/';
+            src_full_name[src_length + 1] = 0;
+            strcat(src_full_name, object_name);
+            switch (dir_entry->d_type) {
+            case DT_DIR:{
+                dest_dirs_list = realloc(dest_dirs_list, (dirs_count + 1) * sizeof(char*));
+                src_dirs_list = realloc(src_dirs_list, (dirs_count + 1) * sizeof(char*));
+                dest_dirs_list[dirs_count] = dest_full_name;
+                src_dirs_list[dirs_count] = src_full_name;
+                dirs_count++;
+                break;}
+            case DT_LNK:{
+                result = fs__copy_link_utf8(dest_full_name, src_full_name, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+                free(dest_full_name);
+                free(src_full_name);
+                if (result.type == error__type_number) {goto endloop;}
+                break;}
+            default:{
+                struct stat file_stat;
+                stat(src_full_name, &file_stat);
+                result = fs__copy_file_utf8(dest_full_name, src_full_name, (file_stat.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0, pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+                free(dest_full_name);
+                free(src_full_name);
+                if (result.type == error__type_number) {goto endloop;}}
+            }
+        }
+        endloop:
+        closedir(dir);
+    }
+    for (; dirs_count != 0; dirs_count--) {
+        if (result.type == nothing__type_number) {
+            result = fs__copy_dir_utf8(dest_dirs_list[dirs_count - 1], src_dirs_list[dirs_count - 1], pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+        }
+        free(dest_dirs_list[dirs_count - 1]);
+        free(src_dirs_list[dirs_count - 1]);
+    }
+    if (dest_dirs_list != NULL) {free(dest_dirs_list);}
+    if (src_dirs_list != NULL) {free(src_dirs_list);}
+    return result;
+}
+
+// The function copies a file system object.
+// If a problem occurs during copying, then control is transferred to the problem solver, if the solver solved the problem, the function continues its work.
+type fs__copy(type destination, type source, type* problem_solver, type (problem_solver_func)(type*, type, type, /*type -> uint64_t, uint32_t (because of a clang bug)*/ uint64_t, uint32_t, void*, bool), type (int_to_cptype)(type, void*, bool), void* th_data) {
+    bool allow_splice = true;
+    uint8_t* buffer = NULL;
+    struct stat file_stat;
+    int pipefd[2];
+    if (__builtin_expect(pipe(pipefd) != 0, false)) {
+        fprintf(stderr, "Failed to create a one-way communication channel (pipe).\n");
+        exit(EXIT_FAILURE);
+    }
+    type result = (type){.data = 0, .type = nothing__type_number};
+    char* source_utf8 = (char*)string__utf32_to_utf8(source);
+    for (;;) {
+        if (stat(source_utf8, &file_stat) == 0) {
+            if ((file_stat.st_mode & S_IFLNK) == S_IFLNK) {
+                uint64_t source_len = strlen(source_utf8) + 1;
+                uint64_t readed_len;
+                for (;;) {
+                    readed_len = readlink(source_utf8, source_utf8, source_len);
+                    if (readed_len < source_len) {break;}
+                    source_len *= 2;
+                    source_utf8 = realloc(source_utf8, source_len);
+                }
+                if (readed_len == -1) {
+                    result = problem_solver_func(problem_solver, destination, source, int_to_cptype(fs__copy__problem__read_link, th_data, false).data, int__type_number, th_data, false);
+                    if (result.type == error__type_number) {
+                        free(source_utf8);
+                        close(pipefd[0]);
+                        close(pipefd[1]);
+                        return result;
+                    }
+                } else {source_utf8[readed_len] = 0;}
+
+            } else {break;}
+        } else {
+            result = problem_solver_func(problem_solver, destination, source, int_to_cptype(fs__copy__problem__stat, th_data, false).data, int__type_number, th_data, false);
+            if (result.type == error__type_number) {
+                free(source_utf8);
+                close(pipefd[0]);
+                close(pipefd[1]);
+                return result;
+            }
+        }
+    }
+    char* const destination_utf8 = (char*)string__utf32_to_utf8(destination);
+    if ((file_stat.st_mode & S_IFDIR) == S_IFDIR) {
+        result = fs__copy_dir_utf8(destination_utf8, source_utf8, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+    } else {
+        result = fs__copy_file_utf8(destination_utf8, source_utf8, (file_stat.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+    }
+    free(destination_utf8);
+    free(source_utf8);
+    if (buffer != NULL) {free(buffer);}
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return result;
+}
 
 type fs__read_symlink(type link) {
     uint8_t* const link_utf8 = string__utf32_to_utf8(link);
@@ -875,7 +1108,6 @@ type fs__create_symlink(type link_path, type src_object) {
     return result;
 }
 #pragma endregion FS
-
 
 #pragma region Time
 // The function returns the current time.
