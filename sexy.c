@@ -961,6 +961,8 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, struc
             result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__open_dir, th_data, false), th_data);
             if (result.type == error__type_number) {return result;}
         }
+        uint64_t const dest_length = strlen(destination);
+        uint64_t const src_length = strlen(source);
         for (;;) {
             struct dirent* const dir_entry = readdir(dir);
             if (dir_entry == NULL) {break;}
@@ -970,13 +972,11 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, struc
                 object_name[0] == '.' &&
                 (object_name_length == 1 || (object_name_length == 2 && object_name[1] == '.'))
             ) {continue;}
-            uint64_t const dest_length = strlen(destination);
             char* dest_full_name = malloc(dest_length + object_name_length + 2);
             strcpy(dest_full_name, destination);
             dest_full_name[dest_length] = '/';
             dest_full_name[dest_length + 1] = 0;
             strcat(dest_full_name, object_name);
-            uint64_t const src_length = strlen(source);
             char* src_full_name = malloc(src_length + object_name_length + 2);
             strcpy(src_full_name, source);
             src_full_name[src_length] = '/';
