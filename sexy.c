@@ -669,7 +669,7 @@ type fs__delete_file(type file_name) {
     struct stat file_stat;
     bool const result =
         lstat((char*)utf8_file_name, &file_stat) == 0 &&
-        (file_stat.st_mode & S_IFDIR) == 0 &&
+        (file_stat.st_mode & S_IFDIR) != S_IFDIR &&
         remove((char*)utf8_file_name) == 0;
     free(utf8_file_name);
     return (type){.data = result, .type = bool__type_numer};
@@ -682,7 +682,7 @@ type fs__delete_empty_dir(type dir_name) {
     struct stat file_stat;
     bool const result =
         lstat((char*)utf8_dir_name, &file_stat) == 0 &&
-        (file_stat.st_mode & S_IFDIR) != 0 &&
+        (file_stat.st_mode & S_IFDIR) == S_IFDIR &&
         remove((char*)utf8_dir_name) == 0;
     free(utf8_dir_name);
     return (type){.data = result, .type = bool__type_numer};
@@ -694,7 +694,7 @@ type fs__file_is_exist(type file_name) {
     struct stat file_stat;
     bool const result =
         lstat((char*)utf8_file_name, &file_stat) == 0 &&
-        (file_stat.st_mode & S_IFDIR) == 0;
+        (file_stat.st_mode & S_IFDIR) != S_IFDIR;
     free(utf8_file_name);
     return (type){.data = result, .type = bool__type_numer};
 }
@@ -705,7 +705,7 @@ type fs__dir_is_exist(type dir_name) {
     struct stat file_stat;
     bool const result =
         lstat((char*)utf8_dir_name, &file_stat) == 0 &&
-        (file_stat.st_mode & S_IFDIR) != 0;
+        (file_stat.st_mode & S_IFDIR) == S_IFDIR;
     free(utf8_dir_name);
     return (type){.data = result, .type = bool__type_numer};
 }
@@ -755,7 +755,7 @@ type fs__get_file_size(type file_name) {
     type result;
     if (
         lstat((char*)utf8_file_name, &file_stat) == 0 &&
-        (file_stat.st_mode & S_IFDIR) == 0
+        (file_stat.st_mode & S_IFDIR) != S_IFDIR
     ) {result = (type){.data = file_stat.st_size, .type = int__type_number};}
     else {result = (type){.data = 0, .type = nothing__type_number};}
     free(utf8_file_name);
