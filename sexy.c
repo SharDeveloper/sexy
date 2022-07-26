@@ -1112,6 +1112,26 @@ type fs__create_symlink(type link_path, type src_object) {
     free(src_object_utf8);
     return result;
 }
+
+// The function copies attributes from one file system object to another.
+// The objects must be of the same type (file, directory, etc.).
+// The function returns "true" if successful, otherwise "false".
+type fs__copy_attributes(type destination, type source) {
+    type result = (type) {.data = 0, .type = bool__type_numer};
+    char* const destination_utf8 = (char*)string__utf32_to_utf8(destination);
+    char* const source_utf8 = (char*)string__utf32_to_utf8(source);
+    struct stat dest_stat;
+    struct stat src_stat;
+    if (
+        (stat(destination_utf8, &dest_stat) == 0) &&
+        (stat(source_utf8, &src_stat) == 0) &&
+        ((dest_stat.st_mode & S_IFMT) == (src_stat.st_mode & S_IFMT)) &&
+        ((chmod(destination_utf8, src_stat.st_mode & ~S_IFMT) | chown(destination_utf8, src_stat.st_uid, src_stat.st_gid)) == 0)
+    ) {result = (type) {.data = 1, .type = bool__type_numer};}
+    free(destination_utf8);
+    free(source_utf8);
+    return result;
+}
 #pragma endregion FS
 
 #pragma region Time
