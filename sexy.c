@@ -668,7 +668,7 @@ type fs__delete_file(type file_name) {
     uint8_t* const utf8_file_name = string__utf32_to_utf8(file_name);
     struct stat file_stat;
     bool const result =
-        stat((char*)utf8_file_name, &file_stat) == 0 &&
+        lstat((char*)utf8_file_name, &file_stat) == 0 &&
         (file_stat.st_mode & S_IFDIR) == 0 &&
         remove((char*)utf8_file_name) == 0;
     free(utf8_file_name);
@@ -681,7 +681,7 @@ type fs__delete_empty_dir(type dir_name) {
     uint8_t* const utf8_dir_name = string__utf32_to_utf8(dir_name);
     struct stat file_stat;
     bool const result =
-        stat((char*)utf8_dir_name, &file_stat) == 0 &&
+        lstat((char*)utf8_dir_name, &file_stat) == 0 &&
         (file_stat.st_mode & S_IFDIR) != 0 &&
         remove((char*)utf8_dir_name) == 0;
     free(utf8_dir_name);
@@ -693,7 +693,7 @@ type fs__file_is_exist(type file_name) {
     uint8_t* const utf8_file_name = string__utf32_to_utf8(file_name);
     struct stat file_stat;
     bool const result =
-        stat((char*)utf8_file_name, &file_stat) == 0 &&
+        lstat((char*)utf8_file_name, &file_stat) == 0 &&
         (file_stat.st_mode & S_IFDIR) == 0;
     free(utf8_file_name);
     return (type){.data = result, .type = bool__type_numer};
@@ -704,7 +704,7 @@ type fs__dir_is_exist(type dir_name) {
     uint8_t* const utf8_dir_name = string__utf32_to_utf8(dir_name);
     struct stat file_stat;
     bool const result =
-        stat((char*)utf8_dir_name, &file_stat) == 0 &&
+        lstat((char*)utf8_dir_name, &file_stat) == 0 &&
         (file_stat.st_mode & S_IFDIR) != 0;
     free(utf8_dir_name);
     return (type){.data = result, .type = bool__type_numer};
@@ -754,7 +754,7 @@ type fs__get_file_size(type file_name) {
     struct stat file_stat;
     type result;
     if (
-        stat((char*)utf8_file_name, &file_stat) == 0 &&
+        lstat((char*)utf8_file_name, &file_stat) == 0 &&
         (file_stat.st_mode & S_IFDIR) == 0
     ) {result = (type){.data = file_stat.st_size, .type = int__type_number};}
     else {result = (type){.data = 0, .type = nothing__type_number};}
@@ -998,7 +998,7 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, struc
                 break;}
             default:{
                 struct stat file_stat;
-                stat(src_full_name, &file_stat);
+                lstat(src_full_name, &file_stat);
                 result = fs__copy_file_utf8(dest_full_name, src_full_name, file_stat, pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
                 free(dest_full_name);
                 free(src_full_name);
@@ -1011,7 +1011,7 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, struc
     for (; dirs_count != 0; dirs_count--) {
         if (result.type == nothing__type_number) {
             struct stat dir_stat;
-            stat(src_dirs_list[dirs_count - 1], &dir_stat);
+            lstat(src_dirs_list[dirs_count - 1], &dir_stat);
             result = fs__copy_dir_utf8(dest_dirs_list[dirs_count - 1], src_dirs_list[dirs_count - 1], dir_stat, pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
         }
         free(dest_dirs_list[dirs_count - 1]);
@@ -1036,7 +1036,7 @@ type fs__copy(type destination, type source, type* problem_solver, type (problem
     type result = (type){.data = 0, .type = nothing__type_number};
     char* source_utf8 = (char*)string__utf32_to_utf8(source);
     for (;;) {
-        if (stat(source_utf8, &fso_stat) == 0) {
+        if (lstat(source_utf8, &fso_stat) == 0) {
             if ((fso_stat.st_mode & S_IFLNK) == S_IFLNK) {
                 uint64_t source_len = strlen(source_utf8) + 1;
                 uint64_t readed_len;
