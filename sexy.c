@@ -649,6 +649,7 @@ type int__get_cryptographic__random(void* th_data) {
 
 #pragma region FS
 #define file_buffer_size 131072
+
 #define fs__copy__problem__stat           (type){.data = 1,  .type = int__type_number}
 #define fs__copy__problem__read_link      (type){.data = 2,  .type = int__type_number}
 #define fs__copy__problem__create_symlink (type){.data = 3,  .type = int__type_number}
@@ -854,7 +855,7 @@ type fs__make_dir(type dir_name, type ignore_existed_directory) {
 // The function return the name of the directory used to store temporary files.
 type fs__get_tmp_dir_name() {return fs__tmp_dir_name;}
 
-__attribute__((cold)) static type fs__problem_solver(const char* destination, const char* source, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type problem_code, void* th_data) {
+__attribute__((cold)) static type fs__problem_solver(const char* destination, const char* source, type* problem_solver, type (problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type problem_code, void* th_data) {
     type destination_utf32 = string__utf8_to_utf32((uint8_t*)destination);
     type source_utf32 = string__utf8_to_utf32((uint8_t*)source);
     type const result = problem_solver_func(problem_solver, destination_utf32, source_utf32, problem_code.data, problem_code.type, th_data, false);
@@ -863,7 +864,7 @@ __attribute__((cold)) static type fs__problem_solver(const char* destination, co
     return result;
 }
 
-static type fs__copy_link_utf8(const char* destination, const char* source, uint8_t** buffer, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (*int_to_cptype)(type, void*, bool), void* th_data) {
+static type fs__copy_link_utf8(const char* destination, const char* source, uint8_t** buffer, type* problem_solver, type (problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (int_to_cptype)(type, void*, bool), void* th_data) {
     type result = (type){.data = 0, .type = nothing__type_number};
     if (*buffer == NULL) {*buffer = malloc(file_buffer_size);}
     uint64_t readed_len;
@@ -882,18 +883,16 @@ static type fs__copy_link_utf8(const char* destination, const char* source, uint
     return result;
 }
 
-static type fs__copy_file_utf8(const char* destination, const char* source, bool src_is_executable, int* pipefd, bool* allow_splice, uint8_t** buffer, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (*int_to_cptype)(type, void*, bool), void* th_data) {
+static type fs__copy_file_utf8(const char* destination, const char* source, struct stat file_stat, int* pipefd, bool* allow_splice, uint8_t** buffer, type* problem_solver, type (problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (int_to_cptype)(type, void*, bool), void* th_data) {
     type result = (type){.data = 0, .type = nothing__type_number};
     int src_fd;
     int dest_fd;
-    int flags = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH ;
-    if (src_is_executable) {flags |= S_IXUSR | S_IXGRP | S_IXOTH;}
     src_fd = open(source, O_RDONLY);
     if (src_fd == -1) {
         result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__open_file, th_data, false), th_data);
         return result;
     }
-    dest_fd = open(destination, O_CREAT | O_EXCL | O_WRONLY, flags);
+    dest_fd = open(destination, O_CREAT | O_EXCL | O_WRONLY, file_stat.st_mode & ~S_IFMT);
     if (dest_fd == -1) {
         close(src_fd);
         result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__create_file, th_data, false), th_data);
@@ -937,12 +936,17 @@ static type fs__copy_file_utf8(const char* destination, const char* source, bool
     }
     close(src_fd);
     close(dest_fd);
+    chmod(destination, file_stat.st_mode & ~S_IFMT);
+    chown(destination, file_stat.st_uid, file_stat.st_gid);
     return result;
 }
 
-static type fs__copy_dir_utf8(const char* destination, const char* source, int* pipefd, bool* allow_splice, uint8_t** buffer, type* problem_solver, type (*problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (*int_to_cptype)(type, void*, bool), void* th_data) {
+static type fs__copy_dir_utf8(const char* destination, const char* source, struct stat dir_stat, int* pipefd, bool* allow_splice, uint8_t** buffer, type* problem_solver, type (problem_solver_func)(type*, type, type, uint64_t, uint32_t, void*, bool), type (int_to_cptype)(type, void*, bool), void* th_data) {
     type result = (type){.data = 0, .type = nothing__type_number};
-    if (mkdir(destination, S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO) != 0) {
+    if (mkdir(destination, S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO) == 0) {
+        chmod(destination, dir_stat.st_mode & ~S_IFMT);
+        chown(destination, dir_stat.st_uid, dir_stat.st_gid);
+    } else {
         result = fs__problem_solver(destination, source, problem_solver, problem_solver_func, int_to_cptype(fs__copy__problem__make_dir, th_data, false), th_data);
         if (result.type == error__type_number) {return result;}
     }
@@ -995,7 +999,7 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, int* 
             default:{
                 struct stat file_stat;
                 stat(src_full_name, &file_stat);
-                result = fs__copy_file_utf8(dest_full_name, src_full_name, (file_stat.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0, pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+                result = fs__copy_file_utf8(dest_full_name, src_full_name, file_stat, pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
                 free(dest_full_name);
                 free(src_full_name);
                 if (result.type == error__type_number) {goto endloop;}}
@@ -1006,7 +1010,9 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, int* 
     }
     for (; dirs_count != 0; dirs_count--) {
         if (result.type == nothing__type_number) {
-            result = fs__copy_dir_utf8(dest_dirs_list[dirs_count - 1], src_dirs_list[dirs_count - 1], pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+            struct stat dir_stat;
+            stat(src_dirs_list[dirs_count - 1], &dir_stat);
+            result = fs__copy_dir_utf8(dest_dirs_list[dirs_count - 1], src_dirs_list[dirs_count - 1], dir_stat, pipefd, allow_splice, buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
         }
         free(dest_dirs_list[dirs_count - 1]);
         free(src_dirs_list[dirs_count - 1]);
@@ -1021,7 +1027,7 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, int* 
 type fs__copy(type destination, type source, type* problem_solver, type (problem_solver_func)(type*, type, type, /*type -> uint64_t, uint32_t (because of a clang bug)*/ uint64_t, uint32_t, void*, bool), type (int_to_cptype)(type, void*, bool), void* th_data) {
     bool allow_splice = true;
     uint8_t* buffer = NULL;
-    struct stat file_stat;
+    struct stat fso_stat;
     int pipefd[2];
     if (__builtin_expect(pipe(pipefd) != 0, false)) {
         fprintf(stderr, "Failed to create a one-way communication channel (pipe).\n");
@@ -1030,8 +1036,8 @@ type fs__copy(type destination, type source, type* problem_solver, type (problem
     type result = (type){.data = 0, .type = nothing__type_number};
     char* source_utf8 = (char*)string__utf32_to_utf8(source);
     for (;;) {
-        if (stat(source_utf8, &file_stat) == 0) {
-            if ((file_stat.st_mode & S_IFLNK) == S_IFLNK) {
+        if (stat(source_utf8, &fso_stat) == 0) {
+            if ((fso_stat.st_mode & S_IFLNK) == S_IFLNK) {
                 uint64_t source_len = strlen(source_utf8) + 1;
                 uint64_t readed_len;
                 for (;;) {
@@ -1049,7 +1055,6 @@ type fs__copy(type destination, type source, type* problem_solver, type (problem
                         return result;
                     }
                 } else {source_utf8[readed_len] = 0;}
-
             } else {break;}
         } else {
             result = problem_solver_func(problem_solver, destination, source, int_to_cptype(fs__copy__problem__stat, th_data, false).data, int__type_number, th_data, false);
@@ -1062,10 +1067,10 @@ type fs__copy(type destination, type source, type* problem_solver, type (problem
         }
     }
     char* const destination_utf8 = (char*)string__utf32_to_utf8(destination);
-    if ((file_stat.st_mode & S_IFDIR) == S_IFDIR) {
-        result = fs__copy_dir_utf8(destination_utf8, source_utf8, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+    if ((fso_stat.st_mode & S_IFDIR) == S_IFDIR) {
+        result = fs__copy_dir_utf8(destination_utf8, source_utf8, fso_stat, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
     } else {
-        result = fs__copy_file_utf8(destination_utf8, source_utf8, (file_stat.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+        result = fs__copy_file_utf8(destination_utf8, source_utf8, fso_stat, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
     }
     free(destination_utf8);
     free(source_utf8);
