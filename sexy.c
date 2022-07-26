@@ -1036,39 +1036,20 @@ type fs__copy(type destination, type source, type* problem_solver, type (problem
     type result = (type){.data = 0, .type = nothing__type_number};
     char* source_utf8 = (char*)string__utf32_to_utf8(source);
     for (;;) {
-        if (lstat(source_utf8, &fso_stat) == 0) {
-            if ((fso_stat.st_mode & S_IFLNK) == S_IFLNK) {
-                uint64_t source_len = strlen(source_utf8) + 1;
-                uint64_t readed_len;
-                for (;;) {
-                    readed_len = readlink(source_utf8, source_utf8, source_len);
-                    if (readed_len < source_len) {break;}
-                    source_len *= 2;
-                    source_utf8 = realloc(source_utf8, source_len);
-                }
-                if (readed_len == -1) {
-                    result = problem_solver_func(problem_solver, destination, source, int_to_cptype(fs__copy__problem__read_link, th_data, false).data, int__type_number, th_data, false);
-                    if (result.type == error__type_number) {
-                        free(source_utf8);
-                        close(pipefd[0]);
-                        close(pipefd[1]);
-                        return result;
-                    }
-                } else {source_utf8[readed_len] = 0;}
-            } else {break;}
-        } else {
-            result = problem_solver_func(problem_solver, destination, source, int_to_cptype(fs__copy__problem__stat, th_data, false).data, int__type_number, th_data, false);
-            if (result.type == error__type_number) {
-                free(source_utf8);
-                close(pipefd[0]);
-                close(pipefd[1]);
-                return result;
-            }
+        if (lstat(source_utf8, &fso_stat) == 0) {break;}
+        result = problem_solver_func(problem_solver, destination, source, int_to_cptype(fs__copy__problem__stat, th_data, false).data, int__type_number, th_data, false);
+        if (result.type == error__type_number) {
+            free(source_utf8);
+            close(pipefd[0]);
+            close(pipefd[1]);
+            return result;
         }
     }
     char* const destination_utf8 = (char*)string__utf32_to_utf8(destination);
     if ((fso_stat.st_mode & S_IFDIR) == S_IFDIR) {
         result = fs__copy_dir_utf8(destination_utf8, source_utf8, fso_stat, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
+    } else if ((fso_stat.st_mode & S_IFLNK) == S_IFLNK) {
+        result = fs__copy_link_utf8(destination_utf8, source_utf8, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
     } else {
         result = fs__copy_file_utf8(destination_utf8, source_utf8, fso_stat, pipefd, &allow_splice, &buffer, problem_solver, problem_solver_func, int_to_cptype, th_data);
     }
