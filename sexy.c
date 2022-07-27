@@ -660,6 +660,11 @@ type int__get_cryptographic__random(void* th_data) {
 #define fs__copy__problem__read_from_file (type){.data = 8,  .type = int__type_number}
 #define fs__copy__problem__write_to_file  (type){.data = 9,  .type = int__type_number}
 
+#define fs__delete__problem__stat             (type){.data = 1,  .type = int__type_number}
+#define fs__delete__problem__open_dir         (type){.data = 2,  .type = int__type_number}
+#define fs__delete__problem__delete_empty_dir (type){.data = 3,  .type = int__type_number}
+#define fs__delete__problem__delete_file      (type){.data = 4,  .type = int__type_number}
+
 static type const fs__tmp_dir_name = (type){.data = (uint64_t)(const uint32_t[]) {0, 0, 5, 0, '/', 't', 'm', 'p', '/'}, .type = string__type_number};
 
 // The function deletes the file at the specified path.
@@ -1058,6 +1063,91 @@ type fs__copy(type destination, type source, type* problem_solver, type (problem
     if (buffer != NULL) {free(buffer);}
     close(pipefd[0]);
     close(pipefd[1]);
+    return result;
+}
+
+__attribute__((cold)) static type fs__delete_problem_solver(const char* object, type* problem_solver, type (problem_solver_func)(type*, type, uint64_t, uint32_t, void*, bool), type problem_code, void* th_data) {
+    type object_utf32 = string__utf8_to_utf32((uint8_t*)object);
+    type const result = problem_solver_func(problem_solver, object_utf32, problem_code.data, problem_code.type, th_data, false);
+    shar__rc_free(object_utf32, th_data, false);
+    return result;
+}
+
+static type fs__delete_file_utf8(const char* file_name, type* problem_solver, type (problem_solver_func)(type*, type, uint64_t, uint32_t, void*, bool), type (int_to_dptype)(type, void*, bool), void* th_data) {
+    type result = (type){.data = 0, .type = nothing__type_number};
+    if (remove(file_name) != 0) {
+        result = fs__delete_problem_solver(file_name, problem_solver, problem_solver_func, int_to_dptype(fs__delete__problem__delete_file, th_data, false), th_data);
+    }
+    return result;
+}
+
+static type fs__delete_dir_utf8(const char* dir_name, type* problem_solver, type (problem_solver_func)(type*, type, uint64_t, uint32_t, void*, bool), type (int_to_dptype)(type, void*, bool), void* th_data) {
+    type result = (type){.data = 0, .type = nothing__type_number};
+    uint64_t sub_dirs_count = 0;
+    char** sub_dirs_list = NULL;
+    {
+        DIR* dir = opendir(dir_name);
+        if (dir == NULL) {
+            result = fs__delete_problem_solver(dir_name, problem_solver, problem_solver_func, int_to_dptype(fs__delete__problem__open_dir, th_data, false), th_data);
+            return result;
+        }
+        uint64_t const dir_name_length = strlen(dir_name);
+        for (;;) {
+            struct dirent* const dir_entry = readdir(dir);
+            if (dir_entry == NULL) {break;}
+            char* const object_name = dir_entry->d_name;
+            uint64_t const object_name_length = strlen(object_name);
+            if (
+                object_name[0] == '.' &&
+                (object_name_length == 1 || (object_name_length == 2 && object_name[1] == '.'))
+            ) {continue;}
+            char* obj_full_name = malloc(dir_name_length + object_name_length + 2);
+            strcpy(obj_full_name, dir_name);
+            obj_full_name[dir_name_length] = '/';
+            obj_full_name[dir_name_length + 1] = 0;
+            strcat(obj_full_name, object_name);
+            if (dir_entry->d_type == DT_DIR) {
+                sub_dirs_list = realloc(sub_dirs_list, (sub_dirs_count + 1) * sizeof(char*));
+                sub_dirs_list[sub_dirs_count] = obj_full_name;
+                sub_dirs_count++;
+            } else {
+                result = fs__delete_file_utf8(obj_full_name, problem_solver, problem_solver_func, int_to_dptype, th_data);
+                free(obj_full_name);
+                if (result.type == error__type_number) {break;}
+            }
+        }
+        closedir(dir);
+    }
+    for (; sub_dirs_count != 0; sub_dirs_count--) {
+        if (result.type == nothing__type_number) {
+            result = fs__delete_dir_utf8(sub_dirs_list[sub_dirs_count - 1], problem_solver, problem_solver_func, int_to_dptype, th_data);
+        }
+        free(sub_dirs_list[sub_dirs_count - 1]);
+    }
+    if (sub_dirs_list != NULL) {free(sub_dirs_list);}
+    if (remove(dir_name) != 0) {
+        result = fs__delete_problem_solver(dir_name, problem_solver, problem_solver_func, int_to_dptype(fs__delete__problem__delete_empty_dir, th_data, false), th_data);
+    }
+    return result;
+}
+
+// The function delete a file system object.
+// If a problem occurs during deleting, then control is transferred to the problem solver, if the solver solved the problem, the function continues its work.
+type fs__delete(type object, type* problem_solver, type (problem_solver_func)(type*, type, /*type -> uint64_t, uint32_t (because of a clang bug)*/ uint64_t, uint32_t, void*, bool), type (int_to_dptype)(type, void*, bool), void* th_data) {
+    struct stat fso_stat;
+    type result = (type){.data = 0, .type = nothing__type_number};
+    char* object_utf8 = (char*)string__utf32_to_utf8(object);
+    if (lstat(object_utf8, &fso_stat) != 0) {
+        result = problem_solver_func(problem_solver, object, int_to_dptype(fs__delete__problem__stat, th_data, false).data, int__type_number, th_data, false);
+        free(object_utf8);
+        return result;
+    }
+    if ((fso_stat.st_mode & S_IFDIR) == S_IFDIR) {
+        result = fs__delete_dir_utf8(object_utf8, problem_solver, problem_solver_func, int_to_dptype, th_data);
+    } else {
+        result = fs__delete_file_utf8(object_utf8, problem_solver, problem_solver_func, int_to_dptype, th_data);
+    }
+    free(object_utf8);
     return result;
 }
 
