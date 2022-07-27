@@ -1151,6 +1151,31 @@ type fs__delete(type object, type* problem_solver, type (problem_solver_func)(ty
     return result;
 }
 
+// The function move a file system object.
+// The function at the beginning tries to move the object without copying, if it doesn't work, it copies, and then the original object is deleted.
+type fs__move(type destination, type source, type* copy_problem_solver, type (copy_problem_solver_func)(type*, type, type, /*type -> uint64_t, uint32_t (because of a clang bug)*/ uint64_t, uint32_t, void*, bool), type (int_to_cptype)(type, void*, bool), type* delete_problem_solver, type (delete_problem_solver_func)(type*, type, /*type -> uint64_t, uint32_t (because of a clang bug)*/ uint64_t, uint32_t, void*, bool), type (int_to_dptype)(type, void*, bool), void* th_data) {
+    bool rename_ok = true;
+    {
+        char* source_utf8 = (char*)string__utf32_to_utf8(source);
+        char* const destination_utf8 = (char*)string__utf32_to_utf8(destination);
+        struct stat fso_stat;
+        rename_ok =
+            lstat(source_utf8, &fso_stat) == 0 &&
+            lstat(destination_utf8, &fso_stat) != 0 &&
+            rename(source_utf8, destination_utf8) == 0;
+        free(source_utf8);
+        free(destination_utf8);
+    }
+    type result = (type){.data = 0, .type = nothing__type_number};
+    if (!rename_ok){
+        result = fs__copy(destination, source, copy_problem_solver, copy_problem_solver_func, int_to_cptype, th_data);
+        if (result.type == nothing__type_number){
+            result = fs__delete(source, delete_problem_solver, delete_problem_solver_func, int_to_dptype, th_data);
+        }
+    }
+    return result;
+}
+
 type fs__read_symlink(type link) {
     uint8_t* const link_utf8 = string__utf32_to_utf8(link);
     uint8_t stack_buffer[256];
