@@ -337,6 +337,8 @@ void error__free(type error_obj, void* th_data) {
 static bool allow_threads = false;
 static _Atomic uint64_t number_of_threads = 1;
 static _Atomic bool ignored_errors = false;
+static _Atomic uint64_t new_worker_id = 0;
+static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static inline void mutex__init(pthread_mutex_t* mutex) {
     if (__builtin_expect(pthread_mutex_init(mutex, NULL) != 0, false)) {
@@ -365,6 +367,9 @@ static inline void mutex__destroy(pthread_mutex_t* mutex) {
         exit(EXIT_FAILURE);
     }
 }
+
+static inline void global_lock() {mutex__lock(&global_mutex);}
+static inline void global_unlock() {mutex__unlock(&global_mutex);}
 
 uint64_t pipeline__create() {
     pipeline* result = malloc(sizeof(pipeline));
@@ -465,7 +470,7 @@ static void* worker__run(void* args) {
     type (*function)(type, type, void*, bool) = worker_var.worker;
     thread_data* th_data = malloc(sizeof(thread_data));
     th_data->cryptographic_random_number_index = 64;
-    th_data->id = getpid();
+    th_data->id = new_worker_id++;
     {
         FILE* file = fopen("/dev/urandom", "r");
         if (__builtin_expect((file == NULL) || (fread(th_data->random_number_source, sizeof(uint64_t), 3, file) != 3), false)) {
@@ -806,9 +811,11 @@ type fs__open_dir(type dir_name) {
 
 // The function gets information about one of the objects from the directory.
 type fs__read_dir(type dir, type* object_type) {
+    type result = (type){.data = 0, .type = nothing__type_number};
+    global_lock();
     for (;;) {
         struct dirent* const dir_entry = readdir((DIR*)dir.data);
-        if (dir_entry == NULL) {return (type){.data = 0, .type = nothing__type_number};}
+        if (dir_entry == NULL) {break;}
         char* const object_name = dir_entry->d_name;
         const uint64_t object_name_length = strlen(object_name);
         if (
@@ -840,8 +847,11 @@ type fs__read_dir(type dir, type* object_type) {
         default:
             *object_type = (type){.data = 255, .type = int__type_number};
         }
-        return string__utf8_to_utf32((const uint8_t*)object_name);
+        result = string__utf8_to_utf32((const uint8_t*)object_name);
+        break;
     }
+    global_unlock();
+    return result;
 }
 
 // The function stops parsing the contents of the directory.
@@ -969,10 +979,16 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, struc
         uint64_t const dest_length = strlen(destination);
         uint64_t const src_length = strlen(source);
         for (;;) {
+            global_lock();
             struct dirent* const dir_entry = readdir(dir);
-            if (dir_entry == NULL) {break;}
+            if (dir_entry == NULL) {
+                global_unlock();
+                break;
+            }
             char* const object_name = dir_entry->d_name;
             uint64_t const object_name_length = strlen(object_name);
+            typeof(dir_entry->d_type) object_type = dir_entry->d_type;
+            global_unlock();
             if (
                 object_name[0] == '.' &&
                 (object_name_length == 1 || (object_name_length == 2 && object_name[1] == '.'))
@@ -987,7 +1003,7 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, struc
             src_full_name[src_length] = '/';
             src_full_name[src_length + 1] = 0;
             strcat(src_full_name, object_name);
-            switch (dir_entry->d_type) {
+            switch (object_type) {
             case DT_DIR:{
                 dest_dirs_list = realloc(dest_dirs_list, (dirs_count + 1) * sizeof(char*));
                 src_dirs_list = realloc(src_dirs_list, (dirs_count + 1) * sizeof(char*));
@@ -1093,10 +1109,16 @@ static type fs__delete_dir_utf8(const char* dir_name, type* problem_solver, type
         }
         uint64_t const dir_name_length = strlen(dir_name);
         for (;;) {
+            global_lock();
             struct dirent* const dir_entry = readdir(dir);
-            if (dir_entry == NULL) {break;}
+            if (dir_entry == NULL) {
+                global_unlock();
+                break;
+            }
             char* const object_name = dir_entry->d_name;
             uint64_t const object_name_length = strlen(object_name);
+            typeof(dir_entry->d_type) object_type = dir_entry->d_type;
+            global_unlock();
             if (
                 object_name[0] == '.' &&
                 (object_name_length == 1 || (object_name_length == 2 && object_name[1] == '.'))
@@ -1106,7 +1128,7 @@ static type fs__delete_dir_utf8(const char* dir_name, type* problem_solver, type
             obj_full_name[dir_name_length] = '/';
             obj_full_name[dir_name_length + 1] = 0;
             strcat(obj_full_name, object_name);
-            if (dir_entry->d_type == DT_DIR) {
+            if (object_type == DT_DIR) {
                 sub_dirs_list = realloc(sub_dirs_list, (sub_dirs_count + 1) * sizeof(char*));
                 sub_dirs_list[sub_dirs_count] = obj_full_name;
                 sub_dirs_count++;
