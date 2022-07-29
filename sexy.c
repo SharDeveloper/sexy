@@ -531,7 +531,7 @@ type get_number_of_threads() {return (type){.data = number_of_threads, .type = i
 static uint64_t __argc__;
 static uint8_t** __argv__;
 static uint64_t cpu_cores_number;
-static type const env__platform_name = (type){.data = (uint64_t)(const uint32_t[]) {0, 0, 12, 0, 'l', 'i', 'n', 'u', 'x', ' ', 'x', '8', '6', '_', '6', '4',}, .type = string__type_number};
+static type const env__platform_name = (type){.data = (uint64_t)(const uint32_t[]) {0, 0, 12, 0, 'l', 'i', 'n', 'u', 'x', ' ', 'x', '8', '6', '_', '6', '4'}, .type = string__type_number};
 
 type env__get_cmd_argument(type index) {
     if (index.data < __argc__) {return string__utf8_to_utf32(__argv__[index.data]);}
@@ -678,7 +678,10 @@ type fs__delete_file(type file_name) {
     uint8_t* const utf8_file_name = string__utf32_to_utf8(file_name);
     struct stat file_stat;
     bool const result =
-        lstat((char*)utf8_file_name, &file_stat) == 0 &&
+        (
+            stat((char*)utf8_file_name, &file_stat) == 0 ||
+            lstat((char*)utf8_file_name, &file_stat) == 0
+        ) &&
         (file_stat.st_mode & S_IFDIR) != S_IFDIR &&
         remove((char*)utf8_file_name) == 0;
     free(utf8_file_name);
@@ -689,10 +692,10 @@ type fs__delete_file(type file_name) {
 // If the delete was successful, then the function returns "true", otherwise "false".
 type fs__delete_empty_dir(type dir_name) {
     uint8_t* const utf8_dir_name = string__utf32_to_utf8(dir_name);
-    struct stat file_stat;
+    struct stat dir_stat;
     bool const result =
-        lstat((char*)utf8_dir_name, &file_stat) == 0 &&
-        (file_stat.st_mode & S_IFDIR) == S_IFDIR &&
+        stat((char*)utf8_dir_name, &dir_stat) == 0 &&
+        (dir_stat.st_mode & S_IFDIR) == S_IFDIR &&
         remove((char*)utf8_dir_name) == 0;
     free(utf8_dir_name);
     return (type){.data = result, .type = bool__type_numer};
@@ -703,7 +706,10 @@ type fs__file_is_exist(type file_name) {
     uint8_t* const utf8_file_name = string__utf32_to_utf8(file_name);
     struct stat file_stat;
     bool const result =
-        lstat((char*)utf8_file_name, &file_stat) == 0 &&
+        (
+            stat((char*)utf8_file_name, &file_stat) == 0 ||
+            lstat((char*)utf8_file_name, &file_stat) == 0
+        ) &&
         (file_stat.st_mode & S_IFDIR) != S_IFDIR;
     free(utf8_file_name);
     return (type){.data = result, .type = bool__type_numer};
@@ -712,10 +718,10 @@ type fs__file_is_exist(type file_name) {
 // If the directory exists at the specified path, the function returns "true" otherwise "false".
 type fs__dir_is_exist(type dir_name) {
     uint8_t* const utf8_dir_name = string__utf32_to_utf8(dir_name);
-    struct stat file_stat;
+    struct stat dir_stat;
     bool const result =
-        lstat((char*)utf8_dir_name, &file_stat) == 0 &&
-        (file_stat.st_mode & S_IFDIR) == S_IFDIR;
+        stat((char*)utf8_dir_name, &dir_stat) == 0 &&
+        (dir_stat.st_mode & S_IFDIR) == S_IFDIR;
     free(utf8_dir_name);
     return (type){.data = result, .type = bool__type_numer};
 }
@@ -764,7 +770,7 @@ type fs__get_file_size(type file_name) {
     struct stat file_stat;
     type result;
     if (
-        lstat((char*)utf8_file_name, &file_stat) == 0 &&
+        stat((char*)utf8_file_name, &file_stat) == 0 &&
         (file_stat.st_mode & S_IFDIR) != S_IFDIR
     ) {result = (type){.data = file_stat.st_size, .type = int__type_number};}
     else {result = (type){.data = 0, .type = nothing__type_number};}
@@ -789,15 +795,35 @@ type fs__set_position_in_file(void* file, type new_position) {return (type){.dat
 type fs__file_rename(type old_file_name, type new_file_name) {
     uint8_t* const utf8_old_file_name = string__utf32_to_utf8(old_file_name);
     uint8_t* const utf8_new_file_name = string__utf32_to_utf8(new_file_name);
-    type const result = (type){.data = rename((char*)utf8_old_file_name, (char*)utf8_new_file_name) == 0, .type = bool__type_numer};
+    struct stat fs_stat;
+    bool result =
+        (
+            stat((char*)utf8_old_file_name, &fs_stat) == 0 ||
+            lstat((char*)utf8_old_file_name, &fs_stat) == 0
+        ) &&
+        (fs_stat.st_mode & S_IFDIR) != S_IFDIR &&
+        lstat((char*)utf8_new_file_name, &fs_stat) != 0 &&
+        rename((char*)utf8_old_file_name, (char*)utf8_new_file_name) == 0;
     free(utf8_old_file_name);
     free(utf8_new_file_name);
-    return result;
+    return (type){.data = result, .type = bool__type_numer};
 }
 
 // The function renames the directory.
 // If the renaming was successful, then the function returns "true", otherwise "false".
-type fs__dir_rename(type old_dir_name, type new_dir_name) {return fs__file_rename(old_dir_name, new_dir_name);}
+type fs__dir_rename(type old_dir_name, type new_dir_name) {
+    uint8_t* const utf8_old_dir_name = string__utf32_to_utf8(old_dir_name);
+    uint8_t* const utf8_new_dir_name = string__utf32_to_utf8(new_dir_name);
+    struct stat fs_stat;
+    bool result =
+        stat((char*)utf8_old_dir_name, &fs_stat) == 0 &&
+        (fs_stat.st_mode & S_IFDIR) == S_IFDIR &&
+        lstat((char*)utf8_new_dir_name, &fs_stat) != 0 &&
+        rename((char*)utf8_old_dir_name, (char*)utf8_new_dir_name) == 0;
+    free(utf8_old_dir_name);
+    free(utf8_new_dir_name);
+    return (type){.data = result, .type = bool__type_numer};
+}
 
 // The function prepares data for parsing the contents of a directory.
 // If the function was unable to open the directory, then "nothing" is returned as a result.
@@ -805,8 +831,9 @@ type fs__open_dir(type dir_name) {
     uint8_t* const utf8_dir_name = string__utf32_to_utf8(dir_name);
     DIR* dir = opendir((char*)utf8_dir_name);
     free(utf8_dir_name);
-    if (dir == NULL) {return (type){.data = 0, .type = nothing__type_number};}
-    return (type){.data = (uint64_t)dir, .type = int__type_number};
+    type result = (type){.data = 0, .type = nothing__type_number};
+    if (dir != NULL) {result = (type){.data = (uint64_t)dir, .type = int__type_number};}
+    return result;
 }
 
 // The function gets information about one of the objects from the directory.
@@ -861,8 +888,9 @@ void fs__close_dir(type dir) {closedir((DIR*)dir.data);}
 // If the specified directory already exists and "ignore_existed_directory" is equal to "true", then the function returns "true".
 type fs__make_dir(type dir_name, type ignore_existed_directory) {
     uint8_t* const utf8_dir_name = string__utf32_to_utf8(dir_name);
-    bool result = mkdir((char*)utf8_dir_name, S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO) == 0;
-    if (!result && (ignore_existed_directory.data & 1) == 1) {result = errno == EEXIST;}
+    bool result =
+        mkdir((char*)utf8_dir_name, S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO) == 0 ||
+        ((ignore_existed_directory.data & 1) == 1 && errno == EEXIST);
     free(utf8_dir_name);
     return (type){.data = result, .type = bool__type_numer};
 }
@@ -1038,8 +1066,10 @@ static type fs__copy_dir_utf8(const char* destination, const char* source, struc
         free(dest_dirs_list[dirs_count - 1]);
         free(src_dirs_list[dirs_count - 1]);
     }
-    if (dest_dirs_list != NULL) {free(dest_dirs_list);}
-    if (src_dirs_list != NULL) {free(src_dirs_list);}
+    if (dest_dirs_list != NULL) {
+        free(dest_dirs_list);
+        free(src_dirs_list);
+    }
     return result;
 }
 
@@ -1057,7 +1087,7 @@ type fs__copy(type destination, type source, type* problem_solver, type (problem
     type result = (type){.data = 0, .type = nothing__type_number};
     char* source_utf8 = (char*)string__utf32_to_utf8(source);
     for (;;) {
-        if (lstat(source_utf8, &fso_stat) == 0) {break;}
+        if (stat(source_utf8, &fso_stat) == 0 || lstat(source_utf8, &fso_stat) == 0) {break;}
         result = problem_solver_func(problem_solver, destination, source, int_to_cptype(fs__copy__problem__stat, th_data, false).data, int__type_number, th_data, false);
         if (result.type == error__type_number) {
             free(source_utf8);
