@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <locale.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -619,6 +620,19 @@ type env__execute_command(type command) {
 
 // The function returns the number of processor cores.
 type env__get_cpu_cores_number() {return (type){.data = cpu_cores_number, .type = int__type_number};}
+
+// The function gets the user's home directory.
+type env__get_user_home_dir() {
+    global_lock();
+    struct passwd* pwd = getpwuid(getuid());
+    if (__builtin_expect(pwd == NULL, false)) {
+        fprintf(stderr, "Failed to get current user information.\n");
+        exit(EXIT_FAILURE);
+    }
+    type const result = string__utf8_to_utf32((const uint8_t*)pwd->pw_dir);
+    global_unlock();
+    return result;
+}
 #pragma endregion Env
 
 #pragma region Random
